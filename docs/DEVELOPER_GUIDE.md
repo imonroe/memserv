@@ -38,12 +38,18 @@ also enumerated in `CLAUDE.md`.)
    raises `Task group is not initialized`.
 3. **`stateless_http=True` on `mcp.http_app()`** is required because the container runs uvicorn with
    `--workers 2`. Stateful sessions would produce session-not-found errors across workers.
-4. **`MEM0_EMBED_DIMS` must equal the embedder's real output dimension.** A mismatch produces
+4. **The MCP app is mounted at the root (`app.mount("/", mcp_app)`), registered LAST**, with the
+   FastMCP endpoint built at `path="/mcp"` plus an explicit `/mcp/` alias route. This serves both
+   `/mcp` and `/mcp/` directly (no 307 redirect) — strict clients like Claude.ai web POST to the
+   exact resource URL and won't follow a redirect. Because the root mount is a catch-all, every
+   other route (`/api/v1`, `/oauth`, `/.well-known`, `/metrics`, `/healthz`) MUST be registered
+   before it or it will be shadowed.
+5. **`MEM0_EMBED_DIMS` must equal the embedder's real output dimension.** A mismatch produces
    *silent* empty searches, not an exception. Changing the embedding model requires dropping and
    recreating the Qdrant collection.
-5. **FastMCP is the PrefectHQ `fastmcp` PyPI package** (`from fastmcp import FastMCP`), **not** the
+6. **FastMCP is the PrefectHQ `fastmcp` PyPI package** (`from fastmcp import FastMCP`), **not** the
    older `mcp.server.fastmcp` module.
-6. **The same `MEM0_API_KEY` protects both protocols** — `require_bearer` for REST and the token
+7. **The same `MEM0_API_KEY` protects both protocols** — `require_bearer` for REST and the token
    verifier for MCP. Keep them in sync.
 
 ## Project layout

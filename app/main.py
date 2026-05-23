@@ -7,6 +7,7 @@ import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.routing import Route
 
 from app.config import get_settings
 from app.logging_setup import configure_logging
@@ -21,7 +22,22 @@ _log = structlog.get_logger()
 
 mcp = build_mcp()
 # stateless_http=True is required to avoid session-not-found errors with >1 worker.
-mcp_app = mcp.http_app(path="/", stateless_http=True, transport="streamable-http")
+# The endpoint is served at /mcp (not /mcp/): mounting at the root below, plus the
+# /mcp/ alias route added here, lets BOTH /mcp and /mcp/ resolve directly without a
+# 307 redirect. Strict MCP clients (Claude.ai web / Cowork) POST to the exact
+# advertised resource URL and don't follow the redirect, so a redirect breaks them.
+mcp_app = mcp.http_app(path="/mcp", stateless_http=True, transport="streamable-http")
+_mcp_route = next(
+    (r for r in mcp_app.router.routes if getattr(r, "path", None) == "/mcp"), None
+)
+if _mcp_route is None:
+    raise RuntimeError(
+        "FastMCP did not register the expected /mcp route; cannot add the /mcp/ alias. "
+        "Check the fastmcp version and the http_app(path=...) argument."
+    )
+mcp_app.router.routes.append(
+    Route("/mcp/", _mcp_route.endpoint, methods=list(_mcp_route.methods))
+)
 
 
 @asynccontextmanager
@@ -52,7 +68,14 @@ async def log_requests(request: Request, call_next):
         # keep label cardinality bounded. Unmatched (404) requests have no route,
         # so bucket them under a fixed label instead of the arbitrary raw path.
         route = request.scope.get("route")
-        metric_path = getattr(route, "path", None) or "__unmatched__"
+        metric_path = getattr(route, "path", None)
+        if not metric_path:
+            # Requests served by the root-mounted MCP app have no route at this
+            # outer level. Bucket the two MCP path variants under a single stable
+            # label; anything else that fell through is genuinely unmatched.
+            metric_path = (
+                "/mcp" if request.url.path.rstrip("/") == "/mcp" else "__unmatched__"
+            )
         observe_request(request.method, metric_path, status, elapsed)
         _log.info(
             "request",
@@ -73,8 +96,6 @@ if settings.oauth_enabled:
 
     oauth_store.init_db()
     app.include_router(oauth_router)
-
-app.mount("/mcp", mcp_app)
 
 
 @app.get("/metrics")
@@ -101,3 +122,9 @@ async def healthz() -> JSONResponse:
     return JSONResponse(
         content={"ok": True, "version": app.version, "qdrant": "reachable"}
     )
+
+
+# Mounted at the root LAST so the specific routes above (/api/v1, /oauth,
+# /.well-known, /metrics, /healthz) take precedence; the MCP app only owns
+# /mcp and /mcp/ and 404s everything else.
+app.mount("/", mcp_app)

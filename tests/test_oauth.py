@@ -222,6 +222,99 @@ def test_code_is_single_use(oauth_client):
     assert oauth_client.post("/oauth/token", data=data).status_code == 400
 
 
+def _obtain_tokens(oauth_client) -> dict:
+    client_id = _register(oauth_client)
+    verifier, challenge = _pkce()
+    resp = oauth_client.post(
+        "/oauth/authorize",
+        data={"client_id": client_id, "redirect_uri": ALLOWED_URI, "code_challenge": challenge},
+        follow_redirects=False,
+    )
+    code = resp.headers["location"].split("code=")[1].split("&")[0]
+    resp = oauth_client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": ALLOWED_URI,
+            "code_verifier": verifier,
+            "client_id": client_id,
+        },
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_metadata_advertises_refresh_grant(oauth_client):
+    meta = oauth_client.get("/.well-known/oauth-authorization-server").json()
+    assert "refresh_token" in meta["grant_types_supported"]
+
+
+def test_authorization_code_returns_refresh_token(oauth_client):
+    tokens = _obtain_tokens(oauth_client)
+    assert tokens["refresh_token"]
+    assert tokens["token_type"] == "Bearer"
+
+
+def test_refresh_token_flow_rotates(oauth_client):
+    tokens = _obtain_tokens(oauth_client)
+    old_refresh = tokens["refresh_token"]
+
+    resp = oauth_client.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": old_refresh},
+    )
+    assert resp.status_code == 200
+    new_tokens = resp.json()
+    assert new_tokens["access_token"]
+    # Rotation: a new refresh token is issued and the old one is invalidated.
+    assert new_tokens["refresh_token"] != old_refresh
+    reused = oauth_client.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": old_refresh},
+    )
+    assert reused.status_code == 400
+
+
+def test_refresh_token_invalid_rejected(oauth_client):
+    resp = oauth_client.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": "nope"},
+    )
+    assert resp.status_code == 400
+
+
+def test_refresh_token_expiry_and_cleanup(oauth_client):
+    from app import oauth_store
+
+    # Expired token is rejected on consume.
+    oauth_store.save_refresh_token("expired-rt", "c1", ttl=-10)
+    assert oauth_store.consume_refresh_token("expired-rt") is None
+
+    # Opportunistic cleanup: saving purges expired rows (exactly one here).
+    oauth_store.save_refresh_token("expired-rt2", "c1", ttl=-10)
+    assert oauth_store.delete_expired_refresh_tokens() == 1
+
+    # A live token round-trips and is not stored in plaintext.
+    oauth_store.save_refresh_token("live-rt", "c1", ttl=300)
+    assert oauth_store.consume_refresh_token("live-rt") == {"client_id": "c1"}
+
+
+def test_refresh_token_not_stored_in_plaintext(oauth_client):
+    import sqlite3
+
+    from app import oauth_store
+
+    oauth_store.save_refresh_token("secret-rt", "c1", ttl=300)
+    conn = sqlite3.connect(oauth_store.DB_PATH)
+    try:
+        tokens = [r[0] for r in conn.execute("SELECT token FROM refresh_tokens")]
+    finally:
+        conn.close()
+    assert "secret-rt" not in tokens
+    assert all(len(t) == 64 for t in tokens)  # sha256 hex digests
+
+
 def _pub_from_jwks(jwks: dict) -> bytes:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 

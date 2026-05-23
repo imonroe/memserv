@@ -78,7 +78,7 @@ def _as_metadata() -> dict:
         "registration_endpoint": f"{base}/oauth/register",
         "jwks_uri": f"{base}/.well-known/jwks.json",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
         # Public clients only; PKCE protects the code exchange.
         "token_endpoint_auth_methods_supported": ["none"],
@@ -198,31 +198,14 @@ def authorize_submit(
     return RedirectResponse(url=location, status_code=302)
 
 
-@router.post("/oauth/token")
-def token(
-    grant_type: str = Form(...),
-    code: str = Form(...),
-    redirect_uri: str = Form(...),
-    code_verifier: str = Form(...),
-    client_id: str = Form(...),
-) -> dict:
-    if grant_type != "authorization_code":
-        raise HTTPException(status_code=400, detail="unsupported grant_type")
-    stored = oauth_store.consume_code(code)
-    if not stored:
-        raise HTTPException(status_code=400, detail="invalid or expired code")
-    if stored["client_id"] != client_id or stored["redirect_uri"] != redirect_uri:
-        raise HTTPException(status_code=400, detail="code/client mismatch")
-    if not _verify_pkce(code_verifier, stored["code_challenge"]):
-        raise HTTPException(status_code=400, detail="PKCE verification failed")
-
+def _issue_tokens(client_id: str) -> dict:
     s = get_settings()
     now = int(time.time())
     claims = {
         "iss": s.public_base_url.rstrip("/"),
         "sub": "ian",
         "aud": "mem0-server",
-        "scope": "read write",
+        "scope": " ".join(SCOPES),
         "client_id": client_id,
         "iat": now,
         "exp": now + TOKEN_TTL,
@@ -230,4 +213,44 @@ def token(
     access_token = jwt.encode(
         claims, _private_key(), algorithm="RS256", headers={"kid": KEY_ID}
     )
-    return {"access_token": access_token, "token_type": "Bearer", "expires_in": TOKEN_TTL}
+    refresh_token = secrets.token_urlsafe(32)
+    oauth_store.save_refresh_token(refresh_token, client_id)
+    return {
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": TOKEN_TTL,
+        "refresh_token": refresh_token,
+    }
+
+
+@router.post("/oauth/token")
+def token(
+    grant_type: str = Form(...),
+    code: str = Form(None),
+    redirect_uri: str = Form(None),
+    code_verifier: str = Form(None),
+    client_id: str = Form(None),
+    refresh_token: str = Form(None),
+) -> dict:
+    if grant_type == "authorization_code":
+        if not (code and redirect_uri and code_verifier and client_id):
+            raise HTTPException(status_code=400, detail="missing authorization_code params")
+        stored = oauth_store.consume_code(code)
+        if not stored:
+            raise HTTPException(status_code=400, detail="invalid or expired code")
+        if stored["client_id"] != client_id or stored["redirect_uri"] != redirect_uri:
+            raise HTTPException(status_code=400, detail="code/client mismatch")
+        if not _verify_pkce(code_verifier, stored["code_challenge"]):
+            raise HTTPException(status_code=400, detail="PKCE verification failed")
+        return _issue_tokens(client_id)
+
+    if grant_type == "refresh_token":
+        if not refresh_token:
+            raise HTTPException(status_code=400, detail="missing refresh_token")
+        # Single-use: consume rotates it, so a new refresh_token is returned.
+        rec = oauth_store.consume_refresh_token(refresh_token)
+        if not rec:
+            raise HTTPException(status_code=400, detail="invalid or expired refresh_token")
+        return _issue_tokens(rec["client_id"])
+
+    raise HTTPException(status_code=400, detail="unsupported grant_type")

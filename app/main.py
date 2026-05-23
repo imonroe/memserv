@@ -1,6 +1,9 @@
+import time
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+import structlog
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
@@ -11,6 +14,7 @@ from app.rest import router as rest_router
 
 configure_logging()
 settings = get_settings()
+_log = structlog.get_logger()
 
 mcp = build_mcp()
 # stateless_http=True is required to avoid session-not-found errors with >1 worker.
@@ -26,6 +30,30 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="mem0 Memory Server", version="1.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    # The Authorization header is never read here, so tokens are never logged.
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+    start = time.perf_counter()
+    status = 500  # if call_next raises, the request is logged as a 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        _log.info(
+            "request",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status=status,
+            ms=round((time.perf_counter() - start) * 1000, 1),
+        )
+        structlog.contextvars.clear_contextvars()
+
 
 app.include_router(rest_router, prefix="/api/v1")
 

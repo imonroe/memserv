@@ -68,9 +68,9 @@ def delete_expired_codes() -> int:
 def save_code(
     code: str, client_id: str, redirect_uri: str, code_challenge: str, ttl: int = 300
 ) -> None:
+    # Opportunistic cleanup so abandoned/expired codes don't accumulate.
+    delete_expired_codes()
     with _conn() as conn:
-        # Opportunistic cleanup so abandoned/expired codes don't accumulate.
-        conn.execute("DELETE FROM auth_codes WHERE expires_at < ?", (time.time(),))
         conn.execute(
             "INSERT INTO auth_codes VALUES (?, ?, ?, ?, ?)",
             (code, client_id, redirect_uri, code_challenge, time.time() + ttl),

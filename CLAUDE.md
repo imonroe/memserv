@@ -33,12 +33,13 @@ Phase 1 (MVP) = static bearer-token auth. Phase 2 adds OAuth 2.1 + PKCE + DCR en
 - **`MEM0_EMBED_DIMS` must match the embedder's real output dimension** (3-small=1536, 3-large=3072). A mismatch causes *silent* search failures, not errors. Changing embedding models requires dropping and recreating the Qdrant collection.
 - **FastMCP = the PrefectHQ `fastmcp` PyPI package**, imported `from fastmcp import FastMCP`. It is NOT the older `mcp.server.fastmcp` module.
 - **Same `MEM0_API_KEY` protects both** the REST endpoints (`require_bearer` dependency) and the MCP endpoint (`StaticTokenVerifier` in Phase 1).
+- **The Phase 2 OAuth `/oauth/authorize` consent step authenticates the resource owner** by requiring `MEM0_API_KEY` (constant-time compare) before issuing a code. Don't remove this — the OAuth endpoints are public, so without it anyone reaching the consent screen could mint a token for the single user's memories.
 
 ## Planned layout (per PRD §3)
 
 - `app/config.py` — `Settings` (pydantic-settings); single source of config truth, reject startup on missing required vars.
 - `app/memory.py` — mem0 wrapper / `_build_config`; **the most tweak-prone file**.
-- `app/mcp_server.py` — the six MCP tools (add/search/list/get/update/delete), each thinly wrapping a mem0 op with `user_id` defaulted.
+- `app/mcp_server.py` — the six MCP tools (add/search/list/get/update/delete), each thinly wrapping a mem0 op with `user_id` defaulted. MCP reads (`search`/`list`) must NOT filter by `agent_id` — all agents share one memory; `agent_id` is a write-only provenance tag on `add`. (REST may still filter reads by `agent_id` for explicit scripted use.)
 - `app/rest.py` — REST router under `/api/v1`.
 - `app/auth.py` — `require_bearer` + `build_verifier()` (Phase 1); composite bearer-or-JWT verifier (Phase 2).
 - `app/oauth.py` / `app/oauth_store.py` — Phase 2 OAuth AS endpoints + SQLite store at `/app/data/oauth.db` (CapRover persistent volume).

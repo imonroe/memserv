@@ -38,12 +38,21 @@ async def test_add_memory_tool(mcp, mem):
 async def test_search_memories_tool(mcp, mem):
     mem.search.return_value = {"results": []}
     async with Client(mcp) as client:
-        await client.call_tool(
-            "search_memories", {"query": "what", "agent_id": "cc", "limit": 7}
-        )
+        await client.call_tool("search_memories", {"query": "what", "limit": 7})
     _, kwargs = mem.search.call_args
-    assert kwargs["filters"] == {"user_id": "ian", "agent_id": "cc"}
+    # Reads are never scoped by agent_id: the store is shared across agents.
+    assert kwargs["filters"] == {"user_id": "ian"}
     assert kwargs["top_k"] == 7
+
+
+async def test_read_tools_do_not_expose_agent_id(mcp):
+    # Reads must not be scopable by agent_id, or a client's model can partition
+    # the shared store and break cross-agent memory.
+    async with Client(mcp) as client:
+        tools = {t.name: t for t in await client.list_tools()}
+    for name in ("search_memories", "list_memories"):
+        props = (tools[name].inputSchema or {}).get("properties", {})
+        assert "agent_id" not in props, name
 
 
 async def test_list_memories_tool(mcp, mem):

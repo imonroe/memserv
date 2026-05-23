@@ -17,6 +17,10 @@ def build_mcp() -> FastMCP:
 
         Use when the user shares preferences, project context, decisions,
         or anything they may want recalled in future conversations.
+
+        agent_id is an optional provenance tag recording which agent wrote the
+        memory. It does NOT partition the store — search and list always span
+        every memory for the user, so all connected agents share one memory.
         """
         kwargs: dict = {"user_id": default_user}
         if agent_id:
@@ -26,20 +30,17 @@ def build_mcp() -> FastMCP:
         return memory.add(content, **kwargs)
 
     @mcp.tool
-    def search_memories(query: str, agent_id: str | None = None, limit: int = 10) -> dict:
-        """Search long-term memory by semantic similarity."""
-        filters: dict = {"user_id": default_user}
-        if agent_id:
-            filters["agent_id"] = agent_id
-        return memory.search(query=query, filters=filters, top_k=limit)
+    def search_memories(query: str, limit: int = 10) -> dict:
+        """Search long-term memory by semantic similarity.
+
+        Searches the single shared memory store for the user, across all agents.
+        """
+        return memory.search(query=query, filters={"user_id": default_user}, top_k=limit)
 
     @mcp.tool
-    def list_memories(agent_id: str | None = None) -> dict:
-        """List all stored memories for the current user."""
-        filters: dict = {"user_id": default_user}
-        if agent_id:
-            filters["agent_id"] = agent_id
-        return memory.get_all(filters=filters)
+    def list_memories() -> dict:
+        """List all stored memories for the user (shared across all agents)."""
+        return memory.get_all(filters={"user_id": default_user})
 
     @mcp.tool
     def get_memory(memory_id: str) -> dict:

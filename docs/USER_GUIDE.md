@@ -28,7 +28,7 @@ a single service. It gives AI agents and scripts a shared, persistent long-term 
 two ways from one process:
 
 - **REST API** under `/api/v1/memories…` — for scripts, n8n, curl, and any HTTP client.
-- **Streamable HTTP MCP** under `/mcp/` — for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
+- **Streamable HTTP MCP** under `/mcp` — for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
 
 Both protocols read and write the **same** memory store, so a fact you save from Claude Code is
 searchable from a curl script and vice versa.
@@ -45,7 +45,10 @@ keyword matches.
 
 Memories can optionally be tagged with:
 
-- `agent_id` — which agent/tool wrote it (e.g. `n8n-flow`, `claude-code`), so you can filter later.
+- `agent_id` — a provenance tag for which agent/tool wrote it (e.g. `n8n-flow`, `claude-code`).
+  Over MCP it is **write-only**: the `search`/`list` tools always span the whole store, so every
+  connected agent (Claude Code, Codex, Claude.ai web, …) shares one memory. The REST API can still
+  filter reads by `agent_id` for scripts that explicitly want a slice.
 - `run_id` — a session or workflow run identifier.
 - `metadata` — arbitrary JSON you attach to a memory.
 
@@ -165,7 +168,7 @@ and Cowork, which use OAuth (Phase 2).
 
 ```bash
 claude mcp add --scope user --transport http mem0-remote \
-  https://mem0.your-domain.com/mcp/ \
+  https://mem0.your-domain.com/mcp \
   --header "Authorization: Bearer $MEM0_API_KEY"
 ```
 
@@ -175,20 +178,28 @@ Code.
 ### Claude Desktop
 
 Add an entry under the MCP servers section of Claude Desktop's config, pointing at
-`https://mem0.your-domain.com/mcp/` with an `Authorization: Bearer <token>` header (Streamable HTTP
-transport). Restart Claude Desktop to pick it up.
+`https://mem0.your-domain.com/mcp` with an `Authorization: Bearer <token>` header (Streamable HTTP
+transport). Restart Claude Desktop to pick it up. Both `/mcp` and `/mcp/` work; `/mcp` is the
+canonical form.
 
 ### Claude.ai web / Cowork (OAuth)
 
 This requires **Phase 2** (`OAUTH_SIGNING_KEY` set). In the client's connector settings:
 
-1. Add a **custom connector** pointing at `https://mem0.your-domain.com/mcp/`.
+1. Add a **custom connector** pointing at `https://mem0.your-domain.com/mcp`.
 2. Leave the client ID and secret **blank** — the server supports Dynamic Client Registration, so
    the client registers itself automatically.
-3. Complete the consent screen (click **Authorize**) and the redirect back to the client.
+3. On the consent screen, **enter your `MEM0_API_KEY`** in the API key field and click
+   **Authorize**, then let the redirect complete.
 
-The server only allows redirect URIs listed in `OAUTH_ALLOWED_REDIRECT_URIS`, which defaults to the
-official claude.ai and Cowork callback URLs.
+**Why the API key prompt matters (security):** this server is single-user and the consent step
+authenticates *you* as the owner. Because the OAuth endpoints are public, anyone who knows the URL
+could otherwise reach the consent screen; requiring `MEM0_API_KEY` at authorization ensures only the
+holder of that key can mint an access token to your memories. Treat `MEM0_API_KEY` as the master
+credential — anyone with it has full access via either the bearer header or the OAuth flow.
+
+The server also only allows redirect URIs listed in `OAUTH_ALLOWED_REDIRECT_URIS`, which defaults to
+the official claude.ai and Cowork callback URLs.
 
 ### REST / curl / n8n
 

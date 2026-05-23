@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import html
 import secrets
 import time
 from functools import lru_cache
@@ -128,20 +129,25 @@ def authorize_form(
     client = oauth_store.get_client(client_id)
     if not client or redirect_uri not in client["redirect_uris"]:
         raise HTTPException(status_code=400, detail="invalid client or redirect_uri")
-    html = f"""
+    e_client_id = html.escape(client_id, quote=True)
+    e_redirect_uri = html.escape(redirect_uri, quote=True)
+    e_code_challenge = html.escape(code_challenge, quote=True)
+    e_state = html.escape(state, quote=True)
+    e_scope = html.escape(scope, quote=True)
+    page = f"""
     <html><body>
       <h2>Authorize mem0</h2>
       <form method="post" action="/oauth/authorize">
-        <input type="hidden" name="client_id" value="{client_id}">
-        <input type="hidden" name="redirect_uri" value="{redirect_uri}">
-        <input type="hidden" name="code_challenge" value="{code_challenge}">
-        <input type="hidden" name="state" value="{state}">
-        <input type="hidden" name="scope" value="{scope}">
+        <input type="hidden" name="client_id" value="{e_client_id}">
+        <input type="hidden" name="redirect_uri" value="{e_redirect_uri}">
+        <input type="hidden" name="code_challenge" value="{e_code_challenge}">
+        <input type="hidden" name="state" value="{e_state}">
+        <input type="hidden" name="scope" value="{e_scope}">
         <button type="submit">Authorize</button>
       </form>
     </body></html>
     """
-    return HTMLResponse(html)
+    return HTMLResponse(page)
 
 
 @router.post("/oauth/authorize")

@@ -110,6 +110,24 @@ def test_full_authorize_token_flow(oauth_client):
     assert payload["scope"] == "read write"
 
 
+def test_authorize_form_escapes_state(oauth_client):
+    client_id = _register(oauth_client)
+    _, challenge = _pkce()
+    payload = '"><script>alert(1)</script>'
+    resp = oauth_client.get(
+        "/oauth/authorize",
+        params={
+            "client_id": client_id,
+            "redirect_uri": ALLOWED_URI,
+            "code_challenge": challenge,
+            "state": payload,
+        },
+    )
+    assert resp.status_code == 200
+    assert "<script>alert(1)</script>" not in resp.text
+    assert "&lt;script&gt;" in resp.text
+
+
 def test_pkce_mismatch_rejected(oauth_client):
     client_id = _register(oauth_client)
     _, challenge = _pkce()

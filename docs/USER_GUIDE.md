@@ -45,7 +45,10 @@ keyword matches.
 
 Memories can optionally be tagged with:
 
-- `agent_id` — which agent/tool wrote it (e.g. `n8n-flow`, `claude-code`), so you can filter later.
+- `agent_id` — a provenance tag for which agent/tool wrote it (e.g. `n8n-flow`, `claude-code`).
+  Over MCP it is **write-only**: the `search`/`list` tools always span the whole store, so every
+  connected agent (Claude Code, Codex, Claude.ai web, …) shares one memory. The REST API can still
+  filter reads by `agent_id` for scripts that explicitly want a slice.
 - `run_id` — a session or workflow run identifier.
 - `metadata` — arbitrary JSON you attach to a memory.
 

@@ -13,14 +13,16 @@ def _provider_config(model: str, api_key: str | None) -> dict:
 
 
 def _build_config(s: Settings) -> dict:
+    # mem0's Qdrant store has no `https` flag; it only honors scheme via `url`.
+    # Build a scheme-aware URL so an HTTPS Qdrant on 443 isn't hit over plain HTTP.
+    scheme = "https" if s.qdrant_https else "http"
+    qdrant_url = f"{scheme}://{s.qdrant_host}:{s.qdrant_port}"
     return {
         "vector_store": {
             "provider": "qdrant",
             "config": {
                 "collection_name": s.mem0_collection,
-                "host": s.qdrant_host,
-                "port": s.qdrant_port,
-                "https": s.qdrant_https,
+                "url": qdrant_url,
                 "api_key": s.qdrant_api_key,
                 "embedding_model_dims": s.mem0_embed_dims,
             },

@@ -28,18 +28,18 @@ def build_mcp() -> FastMCP:
     @mcp.tool
     def search_memories(query: str, agent_id: str | None = None, limit: int = 10) -> dict:
         """Search long-term memory by semantic similarity."""
-        kwargs: dict = {"user_id": default_user, "limit": limit}
+        filters: dict = {"user_id": default_user}
         if agent_id:
-            kwargs["agent_id"] = agent_id
-        return memory.search(query=query, **kwargs)
+            filters["agent_id"] = agent_id
+        return memory.search(query=query, filters=filters, top_k=limit)
 
     @mcp.tool
     def list_memories(agent_id: str | None = None) -> dict:
         """List all stored memories for the current user."""
-        kwargs: dict = {"user_id": default_user}
+        filters: dict = {"user_id": default_user}
         if agent_id:
-            kwargs["agent_id"] = agent_id
-        return memory.get_all(**kwargs)
+            filters["agent_id"] = agent_id
+        return memory.get_all(filters=filters)
 
     @mcp.tool
     def get_memory(memory_id: str) -> dict:

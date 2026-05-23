@@ -35,6 +35,25 @@ async def test_add_memory_tool(mcp, mem):
     assert kwargs["user_id"] == "ian"
 
 
+async def test_search_memories_tool(mcp, mem):
+    mem.search.return_value = {"results": []}
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "search_memories", {"query": "what", "agent_id": "cc", "limit": 7}
+        )
+    _, kwargs = mem.search.call_args
+    assert kwargs["filters"] == {"user_id": "ian", "agent_id": "cc"}
+    assert kwargs["top_k"] == 7
+
+
+async def test_list_memories_tool(mcp, mem):
+    mem.get_all.return_value = {"results": []}
+    async with Client(mcp) as client:
+        await client.call_tool("list_memories", {})
+    _, kwargs = mem.get_all.call_args
+    assert kwargs["filters"] == {"user_id": "ian"}
+
+
 async def test_delete_memory_tool(mcp, mem):
     async with Client(mcp) as client:
         await client.call_tool("delete_memory", {"memory_id": "xyz"})

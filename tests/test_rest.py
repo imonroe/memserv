@@ -74,6 +74,8 @@ def test_get_by_id_not_found(app_instance, mem, auth_header):
     c = _client(app_instance)
     resp = c.get("/api/v1/memories/missing", headers=auth_header)
     assert resp.status_code == 404
+    mem.get.assert_called_once_with(memory_id="missing")
+    assert resp.json()["detail"] == "Memory not found"
 
 
 def test_update(app_instance, mem, auth_header):
@@ -81,6 +83,7 @@ def test_update(app_instance, mem, auth_header):
     c = _client(app_instance)
     resp = c.put("/api/v1/memories/abc", json={"content": "updated"}, headers=auth_header)
     assert resp.status_code == 200
+    assert resp.json() == {"id": "abc", "memory": "updated"}
     mem.update.assert_called_once_with(memory_id="abc", data="updated")
 
 

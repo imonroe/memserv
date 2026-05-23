@@ -98,16 +98,22 @@ def _protected_resource_metadata() -> dict:
 
 # Authorization Server metadata (RFC 8414). The path-scoped variant is what
 # MCP clients probe when the MCP endpoint lives under a sub-path (/mcp).
+# Trailing-slash variants are served directly (not via 307) because strict
+# OAuth clients fetch the exact advertised URL and may not follow redirects.
 @router.get("/.well-known/oauth-authorization-server")
 @router.get("/.well-known/oauth-authorization-server/mcp")
+@router.get("/.well-known/oauth-authorization-server/mcp/")
 def metadata() -> dict:
     return _as_metadata()
 
 
 # Protected Resource metadata (RFC 9728). MCP clients fetch this first to
-# discover which authorization server protects the /mcp resource.
+# discover which authorization server protects the /mcp resource. FastMCP
+# advertises this with a trailing slash (.../oauth-protected-resource/mcp/),
+# so that exact path must return 200 directly, not a redirect.
 @router.get("/.well-known/oauth-protected-resource")
 @router.get("/.well-known/oauth-protected-resource/mcp")
+@router.get("/.well-known/oauth-protected-resource/mcp/")
 def protected_resource() -> dict:
     return _protected_resource_metadata()
 

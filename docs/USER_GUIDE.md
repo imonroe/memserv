@@ -300,5 +300,6 @@ status, and latency. The `Authorization` header is never logged.
 | `Task group is not initialized` on first MCP request | FastMCP lifespan not wired into FastAPI — a code/deploy regression. See `app/main.py`. |
 | 503 from `/healthz` | Qdrant is unreachable. Check `QDRANT_HOST`/`QDRANT_PORT`/`QDRANT_HTTPS`/`QDRANT_API_KEY`. |
 | Server won't start | A required env var is missing or a provider key is absent. Check the startup logs; `app/config.py` names the missing variable. |
-| Claude.ai web can't connect | OAuth not enabled (`OAUTH_SIGNING_KEY` blank), or the client's redirect URI isn't in `OAUTH_ALLOWED_REDIRECT_URIS`. |
+| Claude.ai web / Cowork can't connect | OAuth not enabled (`OAUTH_SIGNING_KEY` blank), or the client's redirect URI isn't in `OAUTH_ALLOWED_REDIRECT_URIS`. |
+| "Couldn't reach the MCP server" on Claude.ai web / Cowork (but Claude Code/Desktop work) | OAuth discovery failure. Confirm `OAUTH_SIGNING_KEY` is set and `PUBLIC_BASE_URL` exactly matches the public HTTPS URL; the server must advertise the protected-resource metadata in the `/mcp/` 401 `WWW-Authenticate` header. |
 | Backup job not running | Check the backup container: `caprover logs mem0-backup`. |

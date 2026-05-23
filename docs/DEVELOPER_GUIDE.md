@@ -107,7 +107,12 @@ MCP tools default `user_id` to the single configured user and expose a narrower 
   presented bearer token against `MEM0_API_KEY` using `secrets.compare_digest` (constant-time).
 - **Phase 2** — `CompositeVerifier` accepts **either** the static bearer token **or** an
   OAuth-issued RS256 JWT validated against the public key, with `audience="mem0-server"` and the
-  issuer set to `PUBLIC_BASE_URL`. REST still uses the static `require_bearer`.
+  issuer set to `PUBLIC_BASE_URL`. REST still uses the static `require_bearer`. The verifier is
+  wrapped in a FastMCP `RemoteAuthProvider` so the mounted MCP app returns a 401 whose
+  `WWW-Authenticate` header carries `resource_metadata="…"` (RFC 9728) — without that pointer,
+  OAuth MCP clients can't discover the authorization server. Because FastMCP is mounted under
+  `/mcp` by the outer FastAPI app and is unaware of that prefix, `resource_base_url` is set
+  explicitly to `<PUBLIC_BASE_URL>/mcp` so the advertised resource is correct.
 
 The OAuth flow (`app/oauth.py`) is OAuth 2.1 with PKCE (S256 required) and public clients only — no
 client secrets are issued. Endpoints: `/oauth/register` (DCR), `/oauth/authorize` (GET form + POST

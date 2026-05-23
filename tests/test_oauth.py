@@ -335,6 +335,68 @@ def test_refresh_token_not_stored_in_plaintext(oauth_client):
     assert all(len(t) == 64 for t in tokens)  # sha256 hex digests
 
 
+def test_mcp_401_advertises_resource_metadata(tmp_path, monkeypatch):
+    """An unauthenticated MCP request must return a 401 whose WWW-Authenticate
+    header points at the protected resource metadata (RFC 9728). Without this,
+    OAuth MCP clients (Claude.ai web / Cowork) can't discover the auth server."""
+    import re
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    # monkeypatch restores/removes these on teardown even if already set in the shell.
+    monkeypatch.setenv("OAUTH_SIGNING_KEY", pem)
+    monkeypatch.setenv("OAUTH_DB_PATH", str(tmp_path / "oauth.db"))
+
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    import app.oauth as oauth_mod
+
+    oauth_mod._private_key.cache_clear()
+
+    try:
+        from contextlib import asynccontextmanager
+
+        from app.mcp_server import build_mcp
+
+        mcp_app = build_mcp().http_app(
+            path="/", stateless_http=True, transport="streamable-http"
+        )
+
+        @asynccontextmanager
+        async def lifespan(app):
+            async with mcp_app.lifespan(app):
+                yield
+
+        app = FastAPI(lifespan=lifespan)
+        app.mount("/mcp", mcp_app)
+
+        with TestClient(app) as client:
+            resp = client.post(
+                "/mcp/",
+                json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                headers={"Accept": "application/json, text/event-stream"},
+            )
+        assert resp.status_code == 401
+        www_auth = resp.headers.get("www-authenticate", "")
+        match = re.search(r'resource_metadata="([^"]+)"', www_auth)
+        assert match, f"no resource_metadata in WWW-Authenticate: {www_auth!r}"
+        # Must be the /mcp-scoped protected-resource metadata document, not just
+        # any URL containing "/mcp" — a wrong path here still breaks discovery.
+        assert match.group(1).rstrip("/").endswith(
+            "/.well-known/oauth-protected-resource/mcp"
+        ), match.group(1)
+    finally:
+        # monkeypatch handles env restoration; lru_caches must be cleared manually
+        # so other tests don't observe OAuth-enabled settings.
+        get_settings.cache_clear()
+        oauth_mod._private_key.cache_clear()
+
+
 def _pub_from_jwks(jwks: dict) -> bytes:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 

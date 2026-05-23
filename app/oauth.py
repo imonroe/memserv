@@ -195,10 +195,15 @@ def _consent_page(
 
 def _owner_authenticated(password: str) -> bool:
     # Single-user: the resource owner proves ownership at the consent step with
-    # the same MEM0_API_KEY that protects the API. Constant-time compare; an empty
-    # configured key must never authenticate.
+    # the same MEM0_API_KEY that protects the API. An empty configured key must
+    # never authenticate. Hash both sides to fixed-length digests so the compare
+    # is genuinely constant-time (compare_digest can leak length for raw strings).
     key = get_settings().mem0_api_key
-    return bool(key) and secrets.compare_digest(password, key)
+    if not key:
+        return False
+    provided = hashlib.sha256(password.encode()).digest()
+    expected = hashlib.sha256(key.encode()).digest()
+    return secrets.compare_digest(provided, expected)
 
 
 @router.get("/oauth/authorize")
@@ -227,7 +232,7 @@ def authorize_form(
 def authorize_submit(
     client_id: str = Form(...),
     redirect_uri: str = Form(...),
-    code_challenge: str = Form(...),
+    code_challenge: str = Form(""),
     state: str = Form(""),
     scope: str = Form("read write"),
     password: str = Form(""),
@@ -235,6 +240,10 @@ def authorize_submit(
     client = oauth_store.get_client(client_id)
     if not client or redirect_uri not in client["redirect_uris"]:
         raise HTTPException(status_code=400, detail="invalid client or redirect_uri")
+    # Enforce PKCE here too (the GET form does), so a direct POST can't mint a
+    # code that could never be exchanged.
+    if not code_challenge:
+        raise HTTPException(status_code=400, detail="PKCE S256 required")
     # Authenticate the resource owner before issuing a code. Without this, anyone
     # who reaches the consent screen could obtain a token for the single user's
     # memories just by clicking "Authorize".

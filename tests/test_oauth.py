@@ -194,6 +194,24 @@ def test_authorize_rejects_missing_password(oauth_client):
     assert "location" not in resp.headers
 
 
+def test_authorize_rejects_empty_pkce(oauth_client):
+    # A direct POST with an empty code_challenge must not mint a code that could
+    # never be exchanged (PKCE is enforced on POST, not just the GET form).
+    client_id = _register(oauth_client)
+    resp = oauth_client.post(
+        "/oauth/authorize",
+        data={
+            "client_id": client_id,
+            "redirect_uri": ALLOWED_URI,
+            "code_challenge": "",
+            "password": "test-bearer-token",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    assert "location" not in resp.headers
+
+
 def test_authorize_form_escapes_state(oauth_client):
     client_id = _register(oauth_client)
     _, challenge = _pkce()

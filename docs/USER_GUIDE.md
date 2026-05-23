@@ -28,7 +28,7 @@ a single service. It gives AI agents and scripts a shared, persistent long-term 
 two ways from one process:
 
 - **REST API** under `/api/v1/memories…` — for scripts, n8n, curl, and any HTTP client.
-- **Streamable HTTP MCP** under `/mcp/` — for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
+- **Streamable HTTP MCP** under `/mcp` — for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
 
 Both protocols read and write the **same** memory store, so a fact you save from Claude Code is
 searchable from a curl script and vice versa.
@@ -168,7 +168,7 @@ and Cowork, which use OAuth (Phase 2).
 
 ```bash
 claude mcp add --scope user --transport http mem0-remote \
-  https://mem0.your-domain.com/mcp/ \
+  https://mem0.your-domain.com/mcp \
   --header "Authorization: Bearer $MEM0_API_KEY"
 ```
 
@@ -178,8 +178,9 @@ Code.
 ### Claude Desktop
 
 Add an entry under the MCP servers section of Claude Desktop's config, pointing at
-`https://mem0.your-domain.com/mcp/` with an `Authorization: Bearer <token>` header (Streamable HTTP
-transport). Restart Claude Desktop to pick it up.
+`https://mem0.your-domain.com/mcp` with an `Authorization: Bearer <token>` header (Streamable HTTP
+transport). Restart Claude Desktop to pick it up. Both `/mcp` and `/mcp/` work; `/mcp` is the
+canonical form.
 
 ### Claude.ai web / Cowork (OAuth)
 

@@ -39,8 +39,8 @@ def test_search(app_instance, mem, auth_header):
     )
     assert resp.status_code == 200
     _, kwargs = mem.search.call_args
-    assert kwargs["limit"] == 5
-    assert kwargs["user_id"] == "ian"
+    assert kwargs["top_k"] == 5
+    assert kwargs["filters"]["user_id"] == "ian"
 
 
 def test_list(app_instance, mem, auth_header):
@@ -49,7 +49,8 @@ def test_list(app_instance, mem, auth_header):
     resp = c.get("/api/v1/memories?agent_id=n8n", headers=auth_header)
     assert resp.status_code == 200
     _, kwargs = mem.get_all.call_args
-    assert kwargs["agent_id"] == "n8n"
+    assert kwargs["filters"]["agent_id"] == "n8n"
+    assert kwargs["filters"]["user_id"] == "ian"
 
 
 def test_delete(app_instance, mem, auth_header):

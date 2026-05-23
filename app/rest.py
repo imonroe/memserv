@@ -63,17 +63,15 @@ def add_memory(req: AddMemoryRequest) -> dict:
 @router.post("/memories/search")
 def search_memories(req: SearchRequest) -> dict:
     memory = memory_mod.get_memory()
-    kwargs = _scope_kwargs(req.user_id, req.agent_id)
-    kwargs["limit"] = req.limit
-    return memory.search(query=req.query, **kwargs)
+    filters = _scope_kwargs(req.user_id, req.agent_id)
+    return memory.search(query=req.query, filters=filters, top_k=req.limit)
 
 
 @router.get("/memories")
 def list_memories(user_id: str | None = None, agent_id: str | None = None, limit: int = 50) -> dict:
     memory = memory_mod.get_memory()
-    kwargs = _scope_kwargs(user_id, agent_id)
-    kwargs["limit"] = limit
-    return memory.get_all(**kwargs)
+    filters = _scope_kwargs(user_id, agent_id)
+    return memory.get_all(filters=filters, top_k=limit)
 
 
 @router.get("/memories/{memory_id}")

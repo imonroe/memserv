@@ -80,7 +80,8 @@ def metadata() -> dict:
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
+        # Public clients only; PKCE protects the code exchange.
+        "token_endpoint_auth_methods_supported": ["none"],
     }
 
 
@@ -96,16 +97,16 @@ async def register(request: Request) -> JSONResponse:
     allowed = set(get_settings().allowed_redirect_uris_list)
     if not redirect_uris or any(uri not in allowed for uri in redirect_uris):
         raise HTTPException(status_code=400, detail="redirect_uri not allowed")
+    # Register as a public client: PKCE (S256) protects the code exchange, so
+    # no client_secret is issued or verified.
     client_id = secrets.token_hex(16)
-    client_secret = secrets.token_hex(32)
-    oauth_store.save_client(client_id, client_secret, redirect_uris)
+    oauth_store.save_client(client_id, None, redirect_uris)
     return JSONResponse(
         status_code=201,
         content={
             "client_id": client_id,
-            "client_secret": client_secret,
             "redirect_uris": redirect_uris,
-            "token_endpoint_auth_method": "client_secret_post",
+            "token_endpoint_auth_method": "none",
             "grant_types": ["authorization_code"],
             "response_types": ["code"],
         },
@@ -177,7 +178,6 @@ def token(
     redirect_uri: str = Form(...),
     code_verifier: str = Form(...),
     client_id: str = Form(...),
-    client_secret: str = Form(None),
 ) -> dict:
     if grant_type != "authorization_code":
         raise HTTPException(status_code=400, detail="unsupported grant_type")

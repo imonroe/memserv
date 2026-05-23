@@ -58,6 +58,7 @@ def test_metadata_and_jwks(oauth_client):
     meta = oauth_client.get("/.well-known/oauth-authorization-server").json()
     assert meta["issuer"] == "https://mem0.test"
     assert meta["code_challenge_methods_supported"] == ["S256"]
+    assert meta["token_endpoint_auth_methods_supported"] == ["none"]
     jwks = oauth_client.get("/.well-known/jwks.json").json()
     assert jwks["keys"][0]["kty"] == "RSA"
 
@@ -65,6 +66,14 @@ def test_metadata_and_jwks(oauth_client):
 def test_dcr_rejects_disallowed_uri(oauth_client):
     resp = oauth_client.post("/oauth/register", json={"redirect_uris": ["https://evil.com/cb"]})
     assert resp.status_code == 400
+
+
+def test_dcr_registers_public_client(oauth_client):
+    resp = oauth_client.post("/oauth/register", json={"redirect_uris": [ALLOWED_URI]})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "client_secret" not in body
+    assert body["token_endpoint_auth_method"] == "none"
 
 
 def _register(oauth_client):

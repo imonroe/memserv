@@ -76,6 +76,12 @@ def test_list_scoped_by_run_id(app_instance, mem, auth_header):
     assert kwargs["filters"]["run_id"] == "r1"
 
 
+def test_list_limit_out_of_range_rejected(app_instance, mem, auth_header):
+    c = _client(app_instance)
+    assert c.get("/api/v1/memories?limit=0", headers=auth_header).status_code == 422
+    assert c.get("/api/v1/memories?limit=1000", headers=auth_header).status_code == 422
+
+
 def test_delete(app_instance, mem, auth_header):
     c = _client(app_instance)
     resp = c.delete("/api/v1/memories/abc", headers=auth_header)

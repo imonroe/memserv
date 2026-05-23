@@ -1,7 +1,7 @@
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app import memory as memory_mod
@@ -73,7 +73,7 @@ def list_memories(
     user_id: str | None = None,
     agent_id: str | None = None,
     run_id: str | None = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=100),
 ) -> dict:
     memory = memory_mod.get_memory()
     filters = _scope_kwargs(user_id, agent_id, run_id)

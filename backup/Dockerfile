@@ -1,7 +1,7 @@
 FROM alpine:3.20
 
-# coreutils provides GNU `date`, which supports `date -d "N days ago"`
-# (BusyBox's date does not) used for S3 retention pruning in backup.sh.
+# coreutils provides GNU `date`. backup.sh's S3 retention pruning relies on
+# `date -d "@<epoch>"`, which BusyBox's date does not reliably support.
 RUN apk add --no-cache curl jq aws-cli dcron tzdata bash coreutils \
     && cp /usr/share/zoneinfo/UTC /etc/localtime
 

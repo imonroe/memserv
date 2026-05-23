@@ -15,6 +15,7 @@ connect clients to it, and use it day to day. If you want to work on the code it
   - [Claude Code](#claude-code)
   - [Claude Desktop](#claude-desktop)
   - [Claude.ai web / Cowork (OAuth)](#claudeai-web--cowork-oauth)
+  - [ChatGPT (OAuth, Developer Mode)](#chatgpt-oauth-developer-mode)
   - [REST / curl / n8n](#rest--curl--n8n)
 - [REST API reference](#rest-api-reference)
 - [Backups and restore](#backups-and-restore)
@@ -99,7 +100,7 @@ runs, or set these in the CapRover app's **App Configs** panel for production.
 | `MEM0_API_KEY` | yes | — | Static bearer token protecting REST + MCP. Generate with `openssl rand -hex 32`. |
 | `PUBLIC_BASE_URL` | yes | — | Public URL, e.g. `https://mem0.your-domain.com`. Used in OAuth metadata. |
 | `OAUTH_SIGNING_KEY` | no | empty | PEM RSA private key. **Setting this enables Phase 2 OAuth.** Leave blank for Phase 1. |
-| `OAUTH_ALLOWED_REDIRECT_URIS` | no | claude.ai + cowork callbacks | Comma-separated allowlist for OAuth redirect URIs. |
+| `OAUTH_ALLOWED_REDIRECT_URIS` | no | claude.ai + cowork + chatgpt callbacks | Comma-separated allowlist for OAuth redirect URIs. An entry ending in `*` is a **path-prefix** match locked to an exact scheme + host — it must be a full `scheme://host/path/` prefix (e.g. `https://chatgpt.com/connector/oauth/*`). Host-only or bare wildcards (`https://chatgpt.com*`, `https://*`, `*`) are **ignored**, so a misconfigured entry can't match lookalike hosts like `chatgpt.com.evil.com`. |
 | `LOG_LEVEL` | no | `INFO` | Log level. |
 
 ### Phases
@@ -199,7 +200,25 @@ holder of that key can mint an access token to your memories. Treat `MEM0_API_KE
 credential — anyone with it has full access via either the bearer header or the OAuth flow.
 
 The server also only allows redirect URIs listed in `OAUTH_ALLOWED_REDIRECT_URIS`, which defaults to
-the official claude.ai and Cowork callback URLs.
+the official claude.ai, Cowork, and ChatGPT callbacks.
+
+### ChatGPT (OAuth, Developer Mode)
+
+Also **Phase 2**. In ChatGPT, enable **Developer Mode**, add a custom connector pointing at
+`https://mem0.your-domain.com/mcp`, and choose OAuth. On the consent screen enter your
+`MEM0_API_KEY` and authorize.
+
+ChatGPT's OAuth callback is a **per-connector** URL of the form
+`https://chatgpt.com/connector/oauth/<connector-id>` — the `<connector-id>` is unique to each
+connector you create. The default allowlist already covers these via the prefix entry
+`https://chatgpt.com/connector/oauth/*`, so you don't need to add the exact URL. If you've
+customized `OAUTH_ALLOWED_REDIRECT_URIS`, include that wildcard entry.
+
+A trailing `*` is a **path-prefix** match, not a free-form glob: it is locked to the exact
+scheme and host of the entry and only extends the path, so write the full
+`scheme://host/path/` prefix (keep the trailing `/`). An entry without a concrete host *and*
+path — `https://chatgpt.com*`, `https://*`, or a bare `*` — is ignored rather than honored, so
+a typo can't accidentally allow a lookalike host such as `chatgpt.com.evil.com`.
 
 ### REST / curl / n8n
 

@@ -107,6 +107,45 @@ def test_dcr_rejects_disallowed_uri(oauth_client):
     assert resp.status_code == 400
 
 
+def test_dcr_allows_wildcard_prefix(oauth_client):
+    # The default allowlist includes https://chatgpt.com/connector/oauth/* so
+    # ChatGPT's per-connector callback (a unique path) registers without exact config.
+    resp = oauth_client.post(
+        "/oauth/register",
+        json={"redirect_uris": ["https://chatgpt.com/connector/oauth/eaQ3VyiNzLuI"]},
+    )
+    assert resp.status_code == 201
+
+
+def test_dcr_wildcard_is_host_locked(oauth_client):
+    # The trailing-* prefix must not allow a different host that merely contains
+    # the path, nor a lookalike host.
+    for bad in (
+        "https://evil.com/connector/oauth/x",
+        "https://chatgpt.com.evil.com/connector/oauth/x",
+    ):
+        resp = oauth_client.post("/oauth/register", json={"redirect_uris": [bad]})
+        assert resp.status_code == 400, bad
+
+
+def test_redirect_uri_allowed_enforces_scheme_host_path():
+    from app.oauth import _redirect_uri_allowed
+
+    allow = ["https://chatgpt.com/connector/oauth/*"]
+    assert _redirect_uri_allowed("https://chatgpt.com/connector/oauth/abc", allow)
+    # exact host, but different scheme or path → rejected
+    assert not _redirect_uri_allowed("http://chatgpt.com/connector/oauth/abc", allow)
+    assert not _redirect_uri_allowed("https://chatgpt.com/other/abc", allow)
+    # lookalike host → rejected
+    assert not _redirect_uri_allowed("https://chatgpt.com.evil.com/connector/oauth/x", allow)
+
+    # Over-broad patterns lacking a concrete host or path are ignored entirely,
+    # so a misconfigured allowlist can't open the door to arbitrary hosts.
+    for broad in (["*"], ["https://chatgpt.com*"], ["https://*"]):
+        assert not _redirect_uri_allowed("https://chatgpt.com.evil.com/x", broad)
+        assert not _redirect_uri_allowed("https://anything.example/x", broad)
+
+
 def test_dcr_registers_public_client(oauth_client):
     resp = oauth_client.post("/oauth/register", json={"redirect_uris": [ALLOWED_URI]})
     assert resp.status_code == 201

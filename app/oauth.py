@@ -4,6 +4,7 @@ import html
 import secrets
 import time
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 import jwt
 import structlog
@@ -128,12 +129,38 @@ def jwks() -> dict:
     return _jwks()
 
 
+def _redirect_uri_allowed(uri: str, allowed: list[str]) -> bool:
+    # Exact match, or — for an allowlist entry ending in "*" — a path-prefix match
+    # under an exact scheme+host. The wildcard is enforced as host-locked here
+    # rather than via a raw startswith: it only extends the path of a concrete
+    # scheme://host/path/ prefix (e.g. ChatGPT's per-connector
+    # https://chatgpt.com/connector/oauth/*). Over-broad patterns that lack a
+    # concrete host or path (e.g. "*" or "https://chatgpt.com*") are ignored, so
+    # a misconfigured entry can't match lookalike hosts like chatgpt.com.evil.com.
+    for entry in allowed:
+        if not entry.endswith("*"):
+            if uri == entry:
+                return True
+            continue
+        prefix = urlsplit(entry[:-1])
+        if not (prefix.scheme and prefix.netloc and prefix.path):
+            continue
+        target = urlsplit(uri)
+        if (
+            target.scheme == prefix.scheme
+            and target.netloc == prefix.netloc
+            and target.path.startswith(prefix.path)
+        ):
+            return True
+    return False
+
+
 @router.post("/oauth/register")
 async def register(request: Request) -> JSONResponse:
     body = await request.json()
     redirect_uris = body.get("redirect_uris") or []
-    allowed = set(get_settings().allowed_redirect_uris_list)
-    rejected = [uri for uri in redirect_uris if uri not in allowed]
+    allowed = get_settings().allowed_redirect_uris_list
+    rejected = [uri for uri in redirect_uris if not _redirect_uri_allowed(uri, allowed)]
     if not redirect_uris or rejected:
         # Log the exact requested URIs and the active allowlist so a client whose
         # callback isn't allowed (the common cause of failed Claude.ai / Cowork

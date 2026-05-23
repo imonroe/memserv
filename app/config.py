@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     oauth_signing_key: str | None = None
     oauth_allowed_redirect_uris: str = (
         "https://claude.ai/api/mcp/auth_callback,"
-        "https://cowork.com/api/mcp/auth_callback"
+        "https://cowork.com/api/mcp/auth_callback,"
+        "https://chatgpt.com/connector/oauth/*"
     )
 
     # Misc

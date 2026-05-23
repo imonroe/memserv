@@ -284,8 +284,9 @@ Run a restore drill periodically so you know the snapshots are usable before you
   `{"ok": true, "version": "…", "qdrant": "reachable"}` on success, or HTTP 503 with
   `{"ok": false, "qdrant": "unreachable"}` if Qdrant can't be reached. CapRover uses this for its
   container healthcheck. No auth required.
-- **`GET /metrics`** — Prometheus metrics: `http_requests_total` and `http_request_duration_seconds`,
-  labelled by method, matched route template, and status. No auth required.
+- **`GET /metrics`** — Prometheus metrics: `http_requests_total` (labelled by method, matched route
+  template, and status) and `http_request_duration_seconds` (labelled by method and matched route
+  template). No auth required.
 
 Every request is logged as structured JSON (via `structlog`) with a `request_id`, method, path,
 status, and latency. The `Authorization` header is never logged.

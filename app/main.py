@@ -7,6 +7,7 @@ import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.routing import Route
 
 from app.config import get_settings
 from app.logging_setup import configure_logging
@@ -21,7 +22,15 @@ _log = structlog.get_logger()
 
 mcp = build_mcp()
 # stateless_http=True is required to avoid session-not-found errors with >1 worker.
-mcp_app = mcp.http_app(path="/", stateless_http=True, transport="streamable-http")
+# The endpoint is served at /mcp (not /mcp/): mounting at the root below, plus the
+# /mcp/ alias route added here, lets BOTH /mcp and /mcp/ resolve directly without a
+# 307 redirect. Strict MCP clients (Claude.ai web / Cowork) POST to the exact
+# advertised resource URL and don't follow the redirect, so a redirect breaks them.
+mcp_app = mcp.http_app(path="/mcp", stateless_http=True, transport="streamable-http")
+_mcp_route = next(r for r in mcp_app.router.routes if getattr(r, "path", None) == "/mcp")
+mcp_app.router.routes.append(
+    Route("/mcp/", _mcp_route.endpoint, methods=list(_mcp_route.methods))
+)
 
 
 @asynccontextmanager
@@ -74,8 +83,6 @@ if settings.oauth_enabled:
     oauth_store.init_db()
     app.include_router(oauth_router)
 
-app.mount("/mcp", mcp_app)
-
 
 @app.get("/metrics")
 def metrics() -> Response:
@@ -101,3 +108,9 @@ async def healthz() -> JSONResponse:
     return JSONResponse(
         content={"ok": True, "version": app.version, "qdrant": "reachable"}
     )
+
+
+# Mounted at the root LAST so the specific routes above (/api/v1, /oauth,
+# /.well-known, /metrics, /healthz) take precedence; the MCP app only owns
+# /mcp and /mcp/ and 404s everything else.
+app.mount("/", mcp_app)

@@ -25,10 +25,14 @@ def test_request_is_logged_without_token(app_instance):
 
 def test_request_logged_as_500_when_handler_raises(app_instance):
     import structlog
+    from fastapi.routing import APIRoute
 
-    @app_instance.get("/boom-test")
     async def _boom():
         raise RuntimeError("kaboom")
+
+    # Insert at the front: the app mounts the MCP sub-app at "/" last, which would
+    # otherwise shadow a route appended after it.
+    app_instance.router.routes.insert(0, APIRoute("/boom-test", _boom, methods=["GET"]))
 
     client = TestClient(app_instance, raise_server_exceptions=False)
     with capture_logs() as logs:

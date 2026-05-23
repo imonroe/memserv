@@ -12,11 +12,19 @@ _BEARER_PREFIX = "Bearer "
 async def require_bearer(authorization: str = Header(default="")) -> None:
     """FastAPI dependency: enforce the static bearer token on REST endpoints."""
     s = get_settings()
-    token = (
-        authorization[len(_BEARER_PREFIX) :]
-        if authorization.startswith(_BEARER_PREFIX)
-        else ""
-    )
+    if not s.mem0_api_key:
+        # An empty configured key would otherwise authenticate empty tokens.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server auth misconfigured: MEM0_API_KEY is empty",
+        )
+    if not authorization.startswith(_BEARER_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = authorization[len(_BEARER_PREFIX) :]
     # Constant-time compare to avoid leaking the token via response timing.
     if not secrets.compare_digest(token, s.mem0_api_key):
         raise HTTPException(
@@ -41,7 +49,7 @@ class CompositeVerifier(TokenVerifier):
         self.issuer = issuer
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        if secrets.compare_digest(token, self.static_token):
+        if self.static_token and secrets.compare_digest(token, self.static_token):
             return AccessToken(
                 token=token, client_id="ian", scopes=["read", "write"]
             )

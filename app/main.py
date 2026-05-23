@@ -3,12 +3,14 @@ import uuid
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.config import get_settings
 from app.logging_setup import configure_logging
 from app.mcp_server import build_mcp
+from app.metrics import observe_request
 from app.rest import check_qdrant
 from app.rest import router as rest_router
 
@@ -44,13 +46,19 @@ async def log_requests(request: Request, call_next):
         status = response.status_code
         return response
     finally:
+        elapsed = time.perf_counter() - start
+        # Use the matched route template (e.g. /api/v1/memories/{memory_id})
+        # to keep metric label cardinality bounded.
+        route = request.scope.get("route")
+        metric_path = getattr(route, "path", request.url.path)
+        observe_request(request.method, metric_path, status, elapsed)
         _log.info(
             "request",
             request_id=request_id,
             method=request.method,
             path=request.url.path,
             status=status,
-            ms=round((time.perf_counter() - start) * 1000, 1),
+            ms=round(elapsed * 1000, 1),
         )
         structlog.contextvars.clear_contextvars()
 
@@ -65,6 +73,11 @@ if settings.oauth_enabled:
     app.include_router(oauth_router)
 
 app.mount("/mcp", mcp_app)
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/healthz")

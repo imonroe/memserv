@@ -126,6 +126,10 @@ def test_authorize_form_escapes_state(oauth_client):
     assert resp.status_code == 200
     assert "<script>alert(1)</script>" not in resp.text
     assert "&lt;script&gt;" in resp.text
+    # Attribute-breaking payloads don't need <script>: ensure the leading quote
+    # that would break out of the value="..." attribute is escaped too.
+    assert '="><script>' not in resp.text
+    assert "&quot;&gt;&lt;script&gt;" in resp.text
 
 
 def test_pkce_mismatch_rejected(oauth_client):

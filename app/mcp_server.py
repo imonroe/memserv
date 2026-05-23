@@ -1,0 +1,60 @@
+from fastmcp import FastMCP
+
+from app.auth import build_verifier
+from app.config import get_settings
+from app.memory import get_memory as load_memory
+
+
+def build_mcp() -> FastMCP:
+    s = get_settings()
+    mcp = FastMCP("mem0-server", auth=build_verifier())
+    memory = load_memory()
+    default_user = s.mem0_default_user_id
+
+    @mcp.tool
+    def add_memory(content: str, agent_id: str | None = None, metadata: dict | None = None) -> dict:
+        """Store a fact or observation in long-term memory.
+
+        Use when the user shares preferences, project context, decisions,
+        or anything they may want recalled in future conversations.
+        """
+        kwargs: dict = {"user_id": default_user}
+        if agent_id:
+            kwargs["agent_id"] = agent_id
+        if metadata:
+            kwargs["metadata"] = metadata
+        return memory.add(content, **kwargs)
+
+    @mcp.tool
+    def search_memories(query: str, agent_id: str | None = None, limit: int = 10) -> dict:
+        """Search long-term memory by semantic similarity."""
+        kwargs: dict = {"user_id": default_user, "limit": limit}
+        if agent_id:
+            kwargs["agent_id"] = agent_id
+        return memory.search(query=query, **kwargs)
+
+    @mcp.tool
+    def list_memories(agent_id: str | None = None) -> dict:
+        """List all stored memories for the current user."""
+        kwargs: dict = {"user_id": default_user}
+        if agent_id:
+            kwargs["agent_id"] = agent_id
+        return memory.get_all(**kwargs)
+
+    @mcp.tool
+    def get_memory(memory_id: str) -> dict:
+        """Fetch a single memory by ID."""
+        return memory.get(memory_id=memory_id)
+
+    @mcp.tool
+    def update_memory(memory_id: str, content: str) -> dict:
+        """Replace the content of an existing memory."""
+        return memory.update(memory_id=memory_id, data=content)
+
+    @mcp.tool
+    def delete_memory(memory_id: str) -> dict:
+        """Permanently delete a memory."""
+        memory.delete(memory_id=memory_id)
+        return {"deleted": True, "memory_id": memory_id}
+
+    return mcp

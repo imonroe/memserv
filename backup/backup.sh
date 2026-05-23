@@ -45,8 +45,10 @@ curl -fsSL -X DELETE \
 # Local rotation: keep 3 most recent
 ls -1t "$LOCAL_DIR" | tail -n +4 | xargs -I {} rm -f "$LOCAL_DIR/{}"
 
-# S3 rotation: delete objects older than RETENTION_DAYS
-CUTOFF=$(date -u -d "$RETENTION_DAYS days ago" +%Y-%m-%d)
+# S3 rotation: delete objects older than RETENTION_DAYS.
+# Use epoch arithmetic (portable across GNU coreutils and BusyBox date)
+# rather than `date -d "N days ago"`, which BusyBox does not support.
+CUTOFF=$(date -u -d "@$(( $(date -u +%s) - RETENTION_DAYS * 86400 ))" +%Y-%m-%d)
 aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX/" \
   | awk '{print $4}' \
   | while read -r KEY; do

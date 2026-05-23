@@ -38,20 +38,21 @@ async def log_requests(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
     structlog.contextvars.bind_contextvars(request_id=request_id)
     start = time.perf_counter()
+    status = 500  # if call_next raises, the request is logged as a 500
     try:
         response = await call_next(request)
+        status = response.status_code
+        return response
     finally:
-        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
-    _log.info(
-        "request",
-        request_id=request_id,
-        method=request.method,
-        path=request.url.path,
-        status=response.status_code,
-        ms=elapsed_ms,
-    )
-    structlog.contextvars.clear_contextvars()
-    return response
+        _log.info(
+            "request",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status=status,
+            ms=round((time.perf_counter() - start) * 1000, 1),
+        )
+        structlog.contextvars.clear_contextvars()
 
 
 app.include_router(rest_router, prefix="/api/v1")

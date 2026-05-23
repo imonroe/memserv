@@ -21,3 +21,20 @@ def test_request_is_logged_without_token(app_instance):
 
     # The bearer token must never appear anywhere in the structured logs.
     assert secret not in json.dumps(logs)
+
+
+def test_request_logged_as_500_when_handler_raises(app_instance):
+    import structlog
+
+    @app_instance.get("/boom-test")
+    async def _boom():
+        raise RuntimeError("kaboom")
+
+    client = TestClient(app_instance, raise_server_exceptions=False)
+    with capture_logs() as logs:
+        client.get("/boom-test")
+
+    entry = next(e for e in logs if e.get("event") == "request" and e["path"] == "/boom-test")
+    assert entry["status"] == 500
+    # contextvars must be cleared even on failure (no request_id leaks).
+    assert "request_id" not in structlog.contextvars.get_contextvars()

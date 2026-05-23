@@ -91,7 +91,10 @@ def _as_metadata() -> dict:
 def _protected_resource_metadata() -> dict:
     base = get_settings().public_base_url.rstrip("/")
     return {
-        "resource": f"{base}/mcp/",
+        # Canonical resource URI per the MCP auth spec: omit the trailing slash.
+        # MCP clients (Claude.ai / Cowork) canonicalize to the no-slash form and
+        # reject authorization if the advertised resource doesn't match.
+        "resource": f"{base}/mcp",
         "authorization_servers": [base],
         "scopes_supported": SCOPES,
         "bearer_methods_supported": ["header"],

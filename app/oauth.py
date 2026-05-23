@@ -68,8 +68,7 @@ def _verify_pkce(verifier: str, challenge: str) -> bool:
     return secrets.compare_digest(computed, challenge)
 
 
-@router.get("/.well-known/oauth-authorization-server")
-def metadata() -> dict:
+def _as_metadata() -> dict:
     base = get_settings().public_base_url.rstrip("/")
     return {
         "issuer": base,
@@ -82,7 +81,34 @@ def metadata() -> dict:
         "code_challenge_methods_supported": ["S256"],
         # Public clients only; PKCE protects the code exchange.
         "token_endpoint_auth_methods_supported": ["none"],
+        "scopes_supported": ["read", "write"],
     }
+
+
+def _protected_resource_metadata() -> dict:
+    base = get_settings().public_base_url.rstrip("/")
+    return {
+        "resource": f"{base}/mcp/",
+        "authorization_servers": [base],
+        "scopes_supported": ["read", "write"],
+        "bearer_methods_supported": ["header"],
+    }
+
+
+# Authorization Server metadata (RFC 8414). The path-scoped variant is what
+# MCP clients probe when the MCP endpoint lives under a sub-path (/mcp).
+@router.get("/.well-known/oauth-authorization-server")
+@router.get("/.well-known/oauth-authorization-server/mcp")
+def metadata() -> dict:
+    return _as_metadata()
+
+
+# Protected Resource metadata (RFC 9728). MCP clients fetch this first to
+# discover which authorization server protects the /mcp resource.
+@router.get("/.well-known/oauth-protected-resource")
+@router.get("/.well-known/oauth-protected-resource/mcp")
+def protected_resource() -> dict:
+    return _protected_resource_metadata()
 
 
 @router.get("/.well-known/jwks.json")

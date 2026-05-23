@@ -222,6 +222,68 @@ def test_code_is_single_use(oauth_client):
     assert oauth_client.post("/oauth/token", data=data).status_code == 400
 
 
+def _obtain_tokens(oauth_client) -> dict:
+    client_id = _register(oauth_client)
+    verifier, challenge = _pkce()
+    resp = oauth_client.post(
+        "/oauth/authorize",
+        data={"client_id": client_id, "redirect_uri": ALLOWED_URI, "code_challenge": challenge},
+        follow_redirects=False,
+    )
+    code = resp.headers["location"].split("code=")[1].split("&")[0]
+    resp = oauth_client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": ALLOWED_URI,
+            "code_verifier": verifier,
+            "client_id": client_id,
+        },
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_metadata_advertises_refresh_grant(oauth_client):
+    meta = oauth_client.get("/.well-known/oauth-authorization-server").json()
+    assert "refresh_token" in meta["grant_types_supported"]
+
+
+def test_authorization_code_returns_refresh_token(oauth_client):
+    tokens = _obtain_tokens(oauth_client)
+    assert tokens["refresh_token"]
+    assert tokens["token_type"] == "Bearer"
+
+
+def test_refresh_token_flow_rotates(oauth_client):
+    tokens = _obtain_tokens(oauth_client)
+    old_refresh = tokens["refresh_token"]
+
+    resp = oauth_client.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": old_refresh},
+    )
+    assert resp.status_code == 200
+    new_tokens = resp.json()
+    assert new_tokens["access_token"]
+    # Rotation: a new refresh token is issued and the old one is invalidated.
+    assert new_tokens["refresh_token"] != old_refresh
+    reused = oauth_client.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": old_refresh},
+    )
+    assert reused.status_code == 400
+
+
+def test_refresh_token_invalid_rejected(oauth_client):
+    resp = oauth_client.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": "nope"},
+    )
+    assert resp.status_code == 400
+
+
 def _pub_from_jwks(jwks: dict) -> bytes:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 

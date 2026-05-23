@@ -35,6 +35,11 @@ def init_db() -> None:
                 code_challenge TEXT NOT NULL,
                 expires_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                token TEXT PRIMARY KEY,
+                client_id TEXT NOT NULL,
+                expires_at REAL NOT NULL
+            );
             """
         )
 
@@ -92,3 +97,35 @@ def consume_code(code: str) -> dict | None:
     if row[3] < time.time():
         return None
     return {"client_id": row[0], "redirect_uri": row[1], "code_challenge": row[2]}
+
+
+def delete_expired_refresh_tokens() -> int:
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM refresh_tokens WHERE expires_at < ?", (time.time(),))
+        return cur.rowcount
+
+
+def save_refresh_token(token: str, client_id: str, ttl: int = 30 * 24 * 3600) -> None:
+    delete_expired_refresh_tokens()
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO refresh_tokens VALUES (?, ?, ?)",
+            (token, client_id, time.time() + ttl),
+        )
+
+
+def consume_refresh_token(token: str) -> dict | None:
+    """Fetch and delete a refresh token (single-use, rotated on every use).
+
+    Returns the bound client_id, or None if the token is unknown or expired.
+    """
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT client_id, expires_at FROM refresh_tokens WHERE token = ?",
+            (token,),
+        ).fetchone()
+        if row:
+            conn.execute("DELETE FROM refresh_tokens WHERE token = ?", (token,))
+    if not row or row[1] < time.time():
+        return None
+    return {"client_id": row[0]}

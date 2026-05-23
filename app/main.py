@@ -27,7 +27,14 @@ mcp = build_mcp()
 # 307 redirect. Strict MCP clients (Claude.ai web / Cowork) POST to the exact
 # advertised resource URL and don't follow the redirect, so a redirect breaks them.
 mcp_app = mcp.http_app(path="/mcp", stateless_http=True, transport="streamable-http")
-_mcp_route = next(r for r in mcp_app.router.routes if getattr(r, "path", None) == "/mcp")
+_mcp_route = next(
+    (r for r in mcp_app.router.routes if getattr(r, "path", None) == "/mcp"), None
+)
+if _mcp_route is None:
+    raise RuntimeError(
+        "FastMCP did not register the expected /mcp route; cannot add the /mcp/ alias. "
+        "Check the fastmcp version and the http_app(path=...) argument."
+    )
 mcp_app.router.routes.append(
     Route("/mcp/", _mcp_route.endpoint, methods=list(_mcp_route.methods))
 )
@@ -61,7 +68,14 @@ async def log_requests(request: Request, call_next):
         # keep label cardinality bounded. Unmatched (404) requests have no route,
         # so bucket them under a fixed label instead of the arbitrary raw path.
         route = request.scope.get("route")
-        metric_path = getattr(route, "path", None) or "__unmatched__"
+        metric_path = getattr(route, "path", None)
+        if not metric_path:
+            # Requests served by the root-mounted MCP app have no route at this
+            # outer level. Bucket the two MCP path variants under a single stable
+            # label; anything else that fell through is genuinely unmatched.
+            metric_path = (
+                "/mcp" if request.url.path.rstrip("/") == "/mcp" else "__unmatched__"
+            )
         observe_request(request.method, metric_path, status, elapsed)
         _log.info(
             "request",

@@ -13,5 +13,7 @@ def test_build_config_shape():
     assert vs["api_key"] == "test-qdrant-key"
 
     assert cfg["llm"]["provider"] == "anthropic"
+    assert cfg["llm"]["config"]["api_key"] == "test-anthropic"
     assert cfg["embedder"]["provider"] == "openai"
+    assert cfg["embedder"]["config"]["api_key"] == "test-openai"
     assert cfg["version"] == "v1.1"

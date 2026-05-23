@@ -284,6 +284,37 @@ def test_refresh_token_invalid_rejected(oauth_client):
     assert resp.status_code == 400
 
 
+def test_refresh_token_expiry_and_cleanup(oauth_client):
+    from app import oauth_store
+
+    # Expired token is rejected on consume.
+    oauth_store.save_refresh_token("expired-rt", "c1", ttl=-10)
+    assert oauth_store.consume_refresh_token("expired-rt") is None
+
+    # Opportunistic cleanup: saving purges expired rows (exactly one here).
+    oauth_store.save_refresh_token("expired-rt2", "c1", ttl=-10)
+    assert oauth_store.delete_expired_refresh_tokens() == 1
+
+    # A live token round-trips and is not stored in plaintext.
+    oauth_store.save_refresh_token("live-rt", "c1", ttl=300)
+    assert oauth_store.consume_refresh_token("live-rt") == {"client_id": "c1"}
+
+
+def test_refresh_token_not_stored_in_plaintext(oauth_client):
+    import sqlite3
+
+    from app import oauth_store
+
+    oauth_store.save_refresh_token("secret-rt", "c1", ttl=300)
+    conn = sqlite3.connect(oauth_store.DB_PATH)
+    try:
+        tokens = [r[0] for r in conn.execute("SELECT token FROM refresh_tokens")]
+    finally:
+        conn.close()
+    assert "secret-rt" not in tokens
+    assert all(len(t) == 64 for t in tokens)  # sha256 hex digests
+
+
 def _pub_from_jwks(jwks: dict) -> bytes:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 

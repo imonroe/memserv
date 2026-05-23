@@ -121,7 +121,10 @@ MCP tools default `user_id` to the single configured user and expose a narrower 
   explicitly to `<PUBLIC_BASE_URL>/mcp` so the advertised resource is correct.
 
 The OAuth flow (`app/oauth.py`) is OAuth 2.1 with PKCE (S256 required) and public clients only — no
-client secrets are issued. Endpoints: `/oauth/register` (DCR), `/oauth/authorize` (GET form + POST
+client secrets are issued. The `/oauth/authorize` consent step **authenticates the resource owner**:
+the POST handler requires the `MEM0_API_KEY` (constant-time compared) before issuing a code. Without
+this gate, anyone who reached the public consent screen could mint a token for the single user's
+memories just by clicking "Authorize". Endpoints: `/oauth/register` (DCR), `/oauth/authorize` (GET form + POST
 consent), `/oauth/token` (authorization_code + refresh_token grants), `/.well-known/jwks.json`, and
 the RFC 8414 / RFC 9728 metadata documents. Tokens live 24h; refresh tokens are single-use and
 rotated. `oauth_store.py` persists clients/codes/refresh tokens in SQLite, hashing refresh tokens

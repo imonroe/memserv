@@ -182,13 +182,20 @@ transport). Restart Claude Desktop to pick it up.
 
 This requires **Phase 2** (`OAUTH_SIGNING_KEY` set). In the client's connector settings:
 
-1. Add a **custom connector** pointing at `https://mem0.your-domain.com/mcp/`.
+1. Add a **custom connector** pointing at `https://mem0.your-domain.com/mcp`.
 2. Leave the client ID and secret **blank** — the server supports Dynamic Client Registration, so
    the client registers itself automatically.
-3. Complete the consent screen (click **Authorize**) and the redirect back to the client.
+3. On the consent screen, **enter your `MEM0_API_KEY`** in the API key field and click
+   **Authorize**, then let the redirect complete.
 
-The server only allows redirect URIs listed in `OAUTH_ALLOWED_REDIRECT_URIS`, which defaults to the
-official claude.ai and Cowork callback URLs.
+**Why the API key prompt matters (security):** this server is single-user and the consent step
+authenticates *you* as the owner. Because the OAuth endpoints are public, anyone who knows the URL
+could otherwise reach the consent screen; requiring `MEM0_API_KEY` at authorization ensures only the
+holder of that key can mint an access token to your memories. Treat `MEM0_API_KEY` as the master
+credential — anyone with it has full access via either the bearer header or the OAuth flow.
+
+The server also only allows redirect URIs listed in `OAUTH_ALLOWED_REDIRECT_URIS`, which defaults to
+the official claude.ai and Cowork callback URLs.
 
 ### REST / curl / n8n
 

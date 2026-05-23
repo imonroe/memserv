@@ -131,6 +131,7 @@ def test_full_authorize_token_flow(oauth_client):
             "client_id": client_id,
             "redirect_uri": ALLOWED_URI,
             "code_challenge": challenge,
+            "password": "test-bearer-token",
         },
         follow_redirects=False,
     )
@@ -156,6 +157,41 @@ def test_full_authorize_token_flow(oauth_client):
     payload = jwt.decode(access_token, pub_pem, algorithms=["RS256"], audience="mem0-server")
     assert payload["sub"] == "ian"
     assert payload["scope"] == "read write"
+
+
+def test_authorize_rejects_wrong_password(oauth_client):
+    # The consent step must authenticate the resource owner: a wrong API key
+    # must not yield an authorization code.
+    client_id = _register(oauth_client)
+    _, challenge = _pkce()
+    resp = oauth_client.post(
+        "/oauth/authorize",
+        data={
+            "client_id": client_id,
+            "redirect_uri": ALLOWED_URI,
+            "code_challenge": challenge,
+            "password": "not-the-key",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 401
+    assert "location" not in resp.headers
+
+
+def test_authorize_rejects_missing_password(oauth_client):
+    client_id = _register(oauth_client)
+    _, challenge = _pkce()
+    resp = oauth_client.post(
+        "/oauth/authorize",
+        data={
+            "client_id": client_id,
+            "redirect_uri": ALLOWED_URI,
+            "code_challenge": challenge,
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 401
+    assert "location" not in resp.headers
 
 
 def test_authorize_form_escapes_state(oauth_client):
@@ -185,7 +221,8 @@ def test_pkce_mismatch_rejected(oauth_client):
     _, challenge = _pkce()
     resp = oauth_client.post(
         "/oauth/authorize",
-        data={"client_id": client_id, "redirect_uri": ALLOWED_URI, "code_challenge": challenge},
+        data={"client_id": client_id, "redirect_uri": ALLOWED_URI,
+              "code_challenge": challenge, "password": "test-bearer-token"},
         follow_redirects=False,
     )
     code = resp.headers["location"].split("code=")[1].split("&")[0]
@@ -227,7 +264,8 @@ def test_code_is_single_use(oauth_client):
     verifier, challenge = _pkce()
     resp = oauth_client.post(
         "/oauth/authorize",
-        data={"client_id": client_id, "redirect_uri": ALLOWED_URI, "code_challenge": challenge},
+        data={"client_id": client_id, "redirect_uri": ALLOWED_URI,
+              "code_challenge": challenge, "password": "test-bearer-token"},
         follow_redirects=False,
     )
     code = resp.headers["location"].split("code=")[1].split("&")[0]
@@ -247,7 +285,8 @@ def _obtain_tokens(oauth_client) -> dict:
     verifier, challenge = _pkce()
     resp = oauth_client.post(
         "/oauth/authorize",
-        data={"client_id": client_id, "redirect_uri": ALLOWED_URI, "code_challenge": challenge},
+        data={"client_id": client_id, "redirect_uri": ALLOWED_URI,
+              "code_challenge": challenge, "password": "test-bearer-token"},
         follow_redirects=False,
     )
     code = resp.headers["location"].split("code=")[1].split("&")[0]

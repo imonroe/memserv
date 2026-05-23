@@ -10,7 +10,7 @@ import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app import oauth_store
 from app.config import get_settings
@@ -161,6 +161,46 @@ async def register(request: Request) -> JSONResponse:
     )
 
 
+def _consent_page(
+    client_id: str,
+    redirect_uri: str,
+    code_challenge: str,
+    state: str,
+    scope: str,
+    error: str = "",
+) -> str:
+    e_client_id = html.escape(client_id, quote=True)
+    e_redirect_uri = html.escape(redirect_uri, quote=True)
+    e_code_challenge = html.escape(code_challenge, quote=True)
+    e_state = html.escape(state, quote=True)
+    e_scope = html.escape(scope, quote=True)
+    error_html = f'<p style="color:red">{html.escape(error, quote=True)}</p>' if error else ""
+    return f"""
+    <html><body>
+      <h2>Authorize mem0</h2>
+      {error_html}
+      <p>Enter your mem0 API key to grant this client access to your memories.</p>
+      <form method="post" action="/oauth/authorize">
+        <input type="hidden" name="client_id" value="{e_client_id}">
+        <input type="hidden" name="redirect_uri" value="{e_redirect_uri}">
+        <input type="hidden" name="code_challenge" value="{e_code_challenge}">
+        <input type="hidden" name="state" value="{e_state}">
+        <input type="hidden" name="scope" value="{e_scope}">
+        <label>API key: <input type="password" name="password" autofocus></label>
+        <button type="submit">Authorize</button>
+      </form>
+    </body></html>
+    """
+
+
+def _owner_authenticated(password: str) -> bool:
+    # Single-user: the resource owner proves ownership at the consent step with
+    # the same MEM0_API_KEY that protects the API. Constant-time compare; an empty
+    # configured key must never authenticate.
+    key = get_settings().mem0_api_key
+    return bool(key) and secrets.compare_digest(password, key)
+
+
 @router.get("/oauth/authorize")
 def authorize_form(
     client_id: str,
@@ -178,25 +218,9 @@ def authorize_form(
     client = oauth_store.get_client(client_id)
     if not client or redirect_uri not in client["redirect_uris"]:
         raise HTTPException(status_code=400, detail="invalid client or redirect_uri")
-    e_client_id = html.escape(client_id, quote=True)
-    e_redirect_uri = html.escape(redirect_uri, quote=True)
-    e_code_challenge = html.escape(code_challenge, quote=True)
-    e_state = html.escape(state, quote=True)
-    e_scope = html.escape(scope, quote=True)
-    page = f"""
-    <html><body>
-      <h2>Authorize mem0</h2>
-      <form method="post" action="/oauth/authorize">
-        <input type="hidden" name="client_id" value="{e_client_id}">
-        <input type="hidden" name="redirect_uri" value="{e_redirect_uri}">
-        <input type="hidden" name="code_challenge" value="{e_code_challenge}">
-        <input type="hidden" name="state" value="{e_state}">
-        <input type="hidden" name="scope" value="{e_scope}">
-        <button type="submit">Authorize</button>
-      </form>
-    </body></html>
-    """
-    return HTMLResponse(page)
+    return HTMLResponse(
+        _consent_page(client_id, redirect_uri, code_challenge, state, scope)
+    )
 
 
 @router.post("/oauth/authorize")
@@ -206,10 +230,23 @@ def authorize_submit(
     code_challenge: str = Form(...),
     state: str = Form(""),
     scope: str = Form("read write"),
-) -> RedirectResponse:
+    password: str = Form(""),
+) -> Response:
     client = oauth_store.get_client(client_id)
     if not client or redirect_uri not in client["redirect_uris"]:
         raise HTTPException(status_code=400, detail="invalid client or redirect_uri")
+    # Authenticate the resource owner before issuing a code. Without this, anyone
+    # who reaches the consent screen could obtain a token for the single user's
+    # memories just by clicking "Authorize".
+    if not _owner_authenticated(password):
+        _log.warning("oauth_consent_rejected", client_id=client_id)
+        return HTMLResponse(
+            _consent_page(
+                client_id, redirect_uri, code_challenge, state, scope,
+                error="Invalid API key.",
+            ),
+            status_code=401,
+        )
     code = secrets.token_urlsafe(32)
     oauth_store.save_code(code, client_id, redirect_uri, code_challenge)
     sep = "&" if "?" in redirect_uri else "?"

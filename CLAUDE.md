@@ -33,6 +33,7 @@ Phase 1 (MVP) = static bearer-token auth. Phase 2 adds OAuth 2.1 + PKCE + DCR en
 - **`MEM0_EMBED_DIMS` must match the embedder's real output dimension** (3-small=1536, 3-large=3072). A mismatch causes *silent* search failures, not errors. Changing embedding models requires dropping and recreating the Qdrant collection.
 - **FastMCP = the PrefectHQ `fastmcp` PyPI package**, imported `from fastmcp import FastMCP`. It is NOT the older `mcp.server.fastmcp` module.
 - **Same `MEM0_API_KEY` protects both** the REST endpoints (`require_bearer` dependency) and the MCP endpoint (`StaticTokenVerifier` in Phase 1).
+- **The Phase 2 OAuth `/oauth/authorize` consent step authenticates the resource owner** by requiring `MEM0_API_KEY` (constant-time compare) before issuing a code. Don't remove this — the OAuth endpoints are public, so without it anyone reaching the consent screen could mint a token for the single user's memories.
 
 ## Planned layout (per PRD §3)
 

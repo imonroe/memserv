@@ -86,6 +86,19 @@ def test_path_scoped_as_metadata(oauth_client):
         assert meta["scopes_supported"] == ["read", "write"]
 
 
+def test_expired_codes_are_garbage_collected(oauth_client):
+    from app import oauth_store
+
+    # An expired code lingers until cleanup runs.
+    oauth_store.save_code("expired", "c1", ALLOWED_URI, "chal", ttl=-10)
+    assert oauth_store.delete_expired_codes() >= 1
+    # A fresh save also opportunistically purges expired rows.
+    oauth_store.save_code("expired2", "c1", ALLOWED_URI, "chal", ttl=-10)
+    oauth_store.save_code("live", "c1", ALLOWED_URI, "chal", ttl=300)
+    assert oauth_store.consume_code("expired2") is None
+    assert oauth_store.consume_code("live") is not None
+
+
 def test_dcr_rejects_disallowed_uri(oauth_client):
     resp = oauth_client.post("/oauth/register", json={"redirect_uris": ["https://evil.com/cb"]})
     assert resp.status_code == 400

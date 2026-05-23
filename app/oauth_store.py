@@ -58,10 +58,19 @@ def get_client(client_id: str) -> dict | None:
     return {"client_id": row[0], "client_secret": row[1], "redirect_uris": json.loads(row[2])}
 
 
+def delete_expired_codes() -> int:
+    """Remove auth codes past their expiry. Returns the number deleted."""
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM auth_codes WHERE expires_at < ?", (time.time(),))
+        return cur.rowcount
+
+
 def save_code(
     code: str, client_id: str, redirect_uri: str, code_challenge: str, ttl: int = 300
 ) -> None:
     with _conn() as conn:
+        # Opportunistic cleanup so abandoned/expired codes don't accumulate.
+        conn.execute("DELETE FROM auth_codes WHERE expires_at < ?", (time.time(),))
         conn.execute(
             "INSERT INTO auth_codes VALUES (?, ?, ?, ?, ?)",
             (code, client_id, redirect_uri, code_challenge, time.time() + ttl),

@@ -69,7 +69,7 @@ def test_protected_resource_metadata(oauth_client):
         "/.well-known/oauth-protected-resource/mcp",
     ):
         meta = oauth_client.get(path).json()
-        assert meta["resource"] == "https://mem0.test/mcp/"
+        assert meta["resource"] == "https://mem0.test/mcp"
         assert meta["authorization_servers"] == ["https://mem0.test"]
         assert meta["bearer_methods_supported"] == ["header"]
         assert meta["scopes_supported"] == ["read", "write"]
@@ -404,7 +404,7 @@ def test_mcp_401_advertises_resource_metadata(tmp_path, monkeypatch):
             assert meta_resp.status_code == 200, (
                 f"{urlparse(rm_url).path} returned {meta_resp.status_code}, not a direct 200"
             )
-            assert meta_resp.json()["resource"].endswith("/mcp/")
+            assert meta_resp.json()["resource"].endswith("/mcp")
     finally:
         # monkeypatch handles env restoration; lru_caches must be cleared manually
         # so other tests don't observe OAuth-enabled settings.

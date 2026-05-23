@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -47,10 +48,11 @@ async def log_requests(request: Request, call_next):
         return response
     finally:
         elapsed = time.perf_counter() - start
-        # Use the matched route template (e.g. /api/v1/memories/{memory_id})
-        # to keep metric label cardinality bounded.
+        # Use the matched route template (e.g. /api/v1/memories/{memory_id}) to
+        # keep label cardinality bounded. Unmatched (404) requests have no route,
+        # so bucket them under a fixed label instead of the arbitrary raw path.
         route = request.scope.get("route")
-        metric_path = getattr(route, "path", request.url.path)
+        metric_path = getattr(route, "path", None) or "__unmatched__"
         observe_request(request.method, metric_path, status, elapsed)
         _log.info(
             "request",
@@ -77,7 +79,18 @@ app.mount("/mcp", mcp_app)
 
 @app.get("/metrics")
 def metrics() -> Response:
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    # The Dockerfile runs uvicorn with --workers 2; generate_latest() on the
+    # default registry only sees the worker that served this scrape. When
+    # PROMETHEUS_MULTIPROC_DIR is set, aggregate across workers instead.
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        from prometheus_client import CollectorRegistry, multiprocess
+
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        data = generate_latest(registry)
+    else:
+        data = generate_latest()
+    return Response(data, media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/healthz")

@@ -1,15 +1,24 @@
+import secrets
+
 from fastapi import Header, HTTPException, status
 from fastmcp.server.auth import StaticTokenVerifier, TokenVerifier
 from mcp.server.auth.provider import AccessToken
 
 from app.config import get_settings
 
+_BEARER_PREFIX = "Bearer "
+
 
 async def require_bearer(authorization: str = Header(default="")) -> None:
     """FastAPI dependency: enforce the static bearer token on REST endpoints."""
     s = get_settings()
-    expected = f"Bearer {s.mem0_api_key}"
-    if authorization != expected:
+    token = (
+        authorization[len(_BEARER_PREFIX) :]
+        if authorization.startswith(_BEARER_PREFIX)
+        else ""
+    )
+    # Constant-time compare to avoid leaking the token via response timing.
+    if not secrets.compare_digest(token, s.mem0_api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing bearer token",
@@ -32,7 +41,7 @@ class CompositeVerifier(TokenVerifier):
         self.issuer = issuer
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        if token == self.static_token:
+        if secrets.compare_digest(token, self.static_token):
             return AccessToken(
                 token=token, client_id="ian", scopes=["read", "write"]
             )

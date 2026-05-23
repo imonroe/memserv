@@ -25,4 +25,7 @@ curl -fsS -X POST "$MEM0_URL/api/v1/memories/search" \
 echo "4. List memories"
 curl -fsS "$MEM0_URL/api/v1/memories?agent_id=smoke" -H "$AUTH" && echo
 
+echo "5-6. MCP add + search (cross-checks REST-added fact via MCP)"
+python3 "$(dirname "$0")/smoke_mcp.py" "where does Ian host services?"
+
 echo "Smoke test complete. Review output above; clean up test memories via DELETE if desired."

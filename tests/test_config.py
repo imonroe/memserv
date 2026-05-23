@@ -25,15 +25,33 @@ def test_allowed_redirect_uris_list():
 
 def test_missing_anthropic_key_rejected():
     with pytest.raises(ValidationError, match="ANTHROPIC_API_KEY"):
-        Settings(anthropic_api_key=None)
+        Settings(mem0_llm_provider="anthropic", anthropic_api_key=None)
 
 
 def test_missing_openai_key_rejected():
     with pytest.raises(ValidationError, match="OPENAI_API_KEY"):
-        Settings(openai_api_key=None)
+        Settings(mem0_embed_provider="openai", openai_api_key=None)
+
+
+def test_whitespace_only_key_treated_as_missing():
+    with pytest.raises(ValidationError, match="ANTHROPIC_API_KEY"):
+        Settings(mem0_llm_provider="anthropic", anthropic_api_key="   ")
+
+
+def test_provider_match_is_case_insensitive():
+    with pytest.raises(ValidationError, match="ANTHROPIC_API_KEY"):
+        Settings(mem0_llm_provider="Anthropic", anthropic_api_key=None)
 
 
 def test_non_default_provider_skips_key_check():
-    # A provider other than the key-backed defaults should not require the key.
-    s = Settings(mem0_llm_provider="ollama", anthropic_api_key=None)
+    # Providers other than the key-backed ones should not require those keys.
+    # Set both non-default and clear both keys so the test doesn't depend on
+    # env-provided keys unrelated to the behavior under test.
+    s = Settings(
+        mem0_llm_provider="ollama",
+        mem0_embed_provider="ollama",
+        anthropic_api_key=None,
+        openai_api_key=None,
+    )
     assert s.mem0_llm_provider == "ollama"
+    assert s.mem0_embed_provider == "ollama"

@@ -46,11 +46,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _require_provider_keys(self) -> "Settings":
-        if self.mem0_llm_provider == "anthropic" and not self.anthropic_api_key:
+        def _missing(key: str | None) -> bool:
+            return not (key and key.strip())
+
+        if self.mem0_llm_provider.strip().lower() == "anthropic" and _missing(
+            self.anthropic_api_key
+        ):
             raise ValueError(
                 "ANTHROPIC_API_KEY is required when MEM0_LLM_PROVIDER=anthropic"
             )
-        if self.mem0_embed_provider == "openai" and not self.openai_api_key:
+        if self.mem0_embed_provider.strip().lower() == "openai" and _missing(
+            self.openai_api_key
+        ):
             raise ValueError(
                 "OPENAI_API_KEY is required when MEM0_EMBED_PROVIDER=openai"
             )

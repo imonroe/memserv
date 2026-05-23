@@ -6,6 +6,7 @@ import time
 from functools import lru_cache
 
 import jwt
+import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -15,6 +16,7 @@ from app import oauth_store
 from app.config import get_settings
 
 router = APIRouter()
+_log = structlog.get_logger()
 
 TOKEN_TTL = 24 * 3600
 KEY_ID = "mem0-oauth-1"
@@ -128,7 +130,17 @@ async def register(request: Request) -> JSONResponse:
     body = await request.json()
     redirect_uris = body.get("redirect_uris") or []
     allowed = set(get_settings().allowed_redirect_uris_list)
-    if not redirect_uris or any(uri not in allowed for uri in redirect_uris):
+    rejected = [uri for uri in redirect_uris if uri not in allowed]
+    if not redirect_uris or rejected:
+        # Log the exact requested URIs and the active allowlist so a client whose
+        # callback isn't allowed (the common cause of failed Claude.ai / Cowork
+        # connections) can be diagnosed and added to OAUTH_ALLOWED_REDIRECT_URIS.
+        _log.warning(
+            "dcr_redirect_uri_rejected",
+            requested=redirect_uris,
+            rejected=rejected,
+            allowed=sorted(allowed),
+        )
         raise HTTPException(status_code=400, detail="redirect_uri not allowed")
     # Register as a public client: PKCE (S256) protects the code exchange, so
     # no client_secret is issued or verified.

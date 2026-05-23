@@ -29,6 +29,18 @@ def _keypair():
     return priv_pem, pub_pem
 
 
+@pytest.fixture(scope="module")
+def keypair():
+    """Module-scoped keypair so RSA generation isn't repeated per test."""
+    return _keypair()
+
+
+@pytest.fixture(scope="module")
+def other_keypair():
+    """A second, distinct keypair for the wrong-signature case."""
+    return _keypair()
+
+
 def _make_jwt(priv_pem, *, aud="mem0-server", iss=ISSUER, exp_delta=3600, **extra):
     now = int(time.time())
     claims = {
@@ -67,8 +79,8 @@ async def test_composite_rejects_unknown_without_jwt_key():
     assert await v.verify_token("nope") is None
 
 
-async def test_composite_accepts_valid_jwt():
-    priv, pub = _keypair()
+async def test_composite_accepts_valid_jwt(keypair):
+    priv, pub = keypair
     v = CompositeVerifier(static_token="abc", jwt_public_key=pub, issuer=ISSUER)
     token = await v.verify_token(_make_jwt(priv))
     assert token is not None
@@ -76,33 +88,33 @@ async def test_composite_accepts_valid_jwt():
     assert token.scopes == ["read", "write"]
 
 
-async def test_composite_rejects_expired_jwt():
-    priv, pub = _keypair()
+async def test_composite_rejects_expired_jwt(keypair):
+    priv, pub = keypair
     v = CompositeVerifier(static_token="abc", jwt_public_key=pub, issuer=ISSUER)
     assert await v.verify_token(_make_jwt(priv, exp_delta=-10)) is None
 
 
-async def test_composite_rejects_wrong_audience():
-    priv, pub = _keypair()
+async def test_composite_rejects_wrong_audience(keypair):
+    priv, pub = keypair
     v = CompositeVerifier(static_token="abc", jwt_public_key=pub, issuer=ISSUER)
     assert await v.verify_token(_make_jwt(priv, aud="someone-else")) is None
 
 
-async def test_composite_rejects_wrong_issuer():
-    priv, pub = _keypair()
+async def test_composite_rejects_wrong_issuer(keypair):
+    priv, pub = keypair
     v = CompositeVerifier(static_token="abc", jwt_public_key=pub, issuer=ISSUER)
     assert await v.verify_token(_make_jwt(priv, iss="https://evil.test")) is None
 
 
-async def test_composite_rejects_wrong_signature():
-    priv_a, _ = _keypair()
-    _, pub_b = _keypair()
+async def test_composite_rejects_wrong_signature(keypair, other_keypair):
+    priv_a, _ = keypair
+    _, pub_b = other_keypair
     v = CompositeVerifier(static_token="abc", jwt_public_key=pub_b, issuer=ISSUER)
     # Signed with key A but verified against key B's public key.
     assert await v.verify_token(_make_jwt(priv_a)) is None
 
 
-async def test_composite_rejects_malformed_jwt():
-    _, pub = _keypair()
+async def test_composite_rejects_malformed_jwt(keypair):
+    _, pub = keypair
     v = CompositeVerifier(static_token="abc", jwt_public_key=pub, issuer=ISSUER)
     assert await v.verify_token("not.a.jwt") is None

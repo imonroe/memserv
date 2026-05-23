@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +43,18 @@ class Settings(BaseSettings):
 
     # Misc
     log_level: str = "INFO"
+
+    @model_validator(mode="after")
+    def _require_provider_keys(self) -> "Settings":
+        if self.mem0_llm_provider == "anthropic" and not self.anthropic_api_key:
+            raise ValueError(
+                "ANTHROPIC_API_KEY is required when MEM0_LLM_PROVIDER=anthropic"
+            )
+        if self.mem0_embed_provider == "openai" and not self.openai_api_key:
+            raise ValueError(
+                "OPENAI_API_KEY is required when MEM0_EMBED_PROVIDER=openai"
+            )
+        return self
 
     @property
     def oauth_enabled(self) -> bool:

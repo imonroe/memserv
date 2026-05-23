@@ -107,6 +107,27 @@ def test_dcr_rejects_disallowed_uri(oauth_client):
     assert resp.status_code == 400
 
 
+def test_dcr_allows_wildcard_prefix(oauth_client):
+    # The default allowlist includes https://chatgpt.com/connector/oauth/* so
+    # ChatGPT's per-connector callback (a unique path) registers without exact config.
+    resp = oauth_client.post(
+        "/oauth/register",
+        json={"redirect_uris": ["https://chatgpt.com/connector/oauth/eaQ3VyiNzLuI"]},
+    )
+    assert resp.status_code == 201
+
+
+def test_dcr_wildcard_is_host_locked(oauth_client):
+    # The trailing-* prefix must not allow a different host that merely contains
+    # the path, nor a lookalike host.
+    for bad in (
+        "https://evil.com/connector/oauth/x",
+        "https://chatgpt.com.evil.com/connector/oauth/x",
+    ):
+        resp = oauth_client.post("/oauth/register", json={"redirect_uris": [bad]})
+        assert resp.status_code == 400, bad
+
+
 def test_dcr_registers_public_client(oauth_client):
     resp = oauth_client.post("/oauth/register", json={"redirect_uris": [ALLOWED_URI]})
     assert resp.status_code == 201

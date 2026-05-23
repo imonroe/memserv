@@ -128,12 +128,26 @@ def jwks() -> dict:
     return _jwks()
 
 
+def _redirect_uri_allowed(uri: str, allowed: list[str]) -> bool:
+    # Exact match, or prefix match for an allowlist entry ending in "*". The
+    # wildcard only extends the path under a fixed scheme+host the operator
+    # configured (e.g. ChatGPT's per-connector https://chatgpt.com/connector/oauth/*),
+    # so it can't redirect codes to a different host.
+    for entry in allowed:
+        if entry.endswith("*"):
+            if uri.startswith(entry[:-1]):
+                return True
+        elif uri == entry:
+            return True
+    return False
+
+
 @router.post("/oauth/register")
 async def register(request: Request) -> JSONResponse:
     body = await request.json()
     redirect_uris = body.get("redirect_uris") or []
-    allowed = set(get_settings().allowed_redirect_uris_list)
-    rejected = [uri for uri in redirect_uris if uri not in allowed]
+    allowed = get_settings().allowed_redirect_uris_list
+    rejected = [uri for uri in redirect_uris if not _redirect_uri_allowed(uri, allowed)]
     if not redirect_uris or rejected:
         # Log the exact requested URIs and the active allowlist so a client whose
         # callback isn't allowed (the common cause of failed Claude.ai / Cowork

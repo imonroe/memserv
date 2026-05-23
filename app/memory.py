@@ -3,6 +3,15 @@ from functools import lru_cache
 from app.config import Settings, get_settings
 
 
+def _provider_config(model: str, api_key: str | None) -> dict:
+    config = {"model": model}
+    # mem0's provider clients otherwise read the key from os.environ, which is
+    # not populated when keys come only from a .env file via pydantic-settings.
+    if api_key:
+        config["api_key"] = api_key
+    return config
+
+
 def _build_config(s: Settings) -> dict:
     return {
         "vector_store": {
@@ -18,11 +27,11 @@ def _build_config(s: Settings) -> dict:
         },
         "llm": {
             "provider": s.mem0_llm_provider,
-            "config": {"model": s.mem0_llm_model},
+            "config": _provider_config(s.mem0_llm_model, s.anthropic_api_key),
         },
         "embedder": {
             "provider": s.mem0_embed_provider,
-            "config": {"model": s.mem0_embed_model},
+            "config": _provider_config(s.mem0_embed_model, s.openai_api_key),
         },
         "version": "v1.1",
     }

@@ -202,6 +202,26 @@ def test_pkce_mismatch_rejected(oauth_client):
     assert resp.status_code == 400
 
 
+def test_expired_code_rejected_at_token_endpoint(oauth_client):
+    from app import oauth_store
+
+    client_id = _register(oauth_client)
+    verifier, challenge = _pkce()
+    # Insert a code that's already expired, bypassing the authorize step.
+    oauth_store.save_code("expired-code", client_id, ALLOWED_URI, challenge, ttl=-10)
+    resp = oauth_client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": "expired-code",
+            "redirect_uri": ALLOWED_URI,
+            "code_verifier": verifier,
+            "client_id": client_id,
+        },
+    )
+    assert resp.status_code == 400
+
+
 def test_code_is_single_use(oauth_client):
     client_id = _register(oauth_client)
     verifier, challenge = _pkce()

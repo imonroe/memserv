@@ -1,7 +1,12 @@
 import secrets
 
 from fastapi import Header, HTTPException, status
-from fastmcp.server.auth import StaticTokenVerifier, TokenVerifier
+from fastmcp.server.auth import (
+    AuthProvider,
+    RemoteAuthProvider,
+    StaticTokenVerifier,
+    TokenVerifier,
+)
 from mcp.server.auth.provider import AccessToken
 
 from app.config import get_settings
@@ -74,15 +79,30 @@ class CompositeVerifier(TokenVerifier):
         )
 
 
-def build_verifier() -> TokenVerifier:
+def build_verifier() -> AuthProvider:
     s = get_settings()
     if s.oauth_enabled:
-        from app.oauth import public_key_pem
+        from app.oauth import SCOPES, public_key_pem
 
-        return CompositeVerifier(
+        base = s.public_base_url.rstrip("/")
+        verifier = CompositeVerifier(
             static_token=s.mem0_api_key,
             jwt_public_key=public_key_pem(),
-            issuer=s.public_base_url,
+            issuer=base,
+        )
+        # Wrap the verifier so the mounted MCP app advertises the protected
+        # resource metadata URL in the 401 WWW-Authenticate header (RFC 9728).
+        # Without this, OAuth MCP clients (Claude.ai web / Cowork) can't discover
+        # the authorization server and fail with "Couldn't reach the MCP server".
+        # resource_base_url must be set explicitly: FastMCP is mounted under /mcp
+        # by the outer FastAPI app and doesn't know that prefix on its own, so the
+        # advertised resource would otherwise be the bare base URL.
+        return RemoteAuthProvider(
+            token_verifier=verifier,
+            authorization_servers=[base],
+            base_url=base,
+            resource_base_url=f"{base}/mcp",
+            scopes_supported=SCOPES,
         )
     return StaticTokenVerifier(
         tokens={s.mem0_api_key: {"client_id": "ian", "scopes": ["read", "write"]}}

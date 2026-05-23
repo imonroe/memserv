@@ -29,6 +29,7 @@ class SearchRequest(BaseModel):
     query: str
     user_id: str | None = None
     agent_id: str | None = None
+    run_id: str | None = None
     limit: int = Field(default=10, ge=1, le=100)
 
 
@@ -63,14 +64,19 @@ def add_memory(req: AddMemoryRequest) -> dict:
 @router.post("/memories/search")
 def search_memories(req: SearchRequest) -> dict:
     memory = memory_mod.get_memory()
-    filters = _scope_kwargs(req.user_id, req.agent_id)
+    filters = _scope_kwargs(req.user_id, req.agent_id, req.run_id)
     return memory.search(query=req.query, filters=filters, top_k=req.limit)
 
 
 @router.get("/memories")
-def list_memories(user_id: str | None = None, agent_id: str | None = None, limit: int = 50) -> dict:
+def list_memories(
+    user_id: str | None = None,
+    agent_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 50,
+) -> dict:
     memory = memory_mod.get_memory()
-    filters = _scope_kwargs(user_id, agent_id)
+    filters = _scope_kwargs(user_id, agent_id, run_id)
     return memory.get_all(filters=filters, top_k=limit)
 
 

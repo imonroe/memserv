@@ -54,6 +54,28 @@ def test_list(app_instance, mem, auth_header):
     assert kwargs["top_k"] == 50  # default list limit must reach mem0 as top_k
 
 
+def test_search_scoped_by_run_id(app_instance, mem, auth_header):
+    mem.search.return_value = {"results": []}
+    c = _client(app_instance)
+    resp = c.post(
+        "/api/v1/memories/search",
+        json={"query": "x", "run_id": "r1"},
+        headers=auth_header,
+    )
+    assert resp.status_code == 200
+    _, kwargs = mem.search.call_args
+    assert kwargs["filters"]["run_id"] == "r1"
+
+
+def test_list_scoped_by_run_id(app_instance, mem, auth_header):
+    mem.get_all.return_value = {"results": []}
+    c = _client(app_instance)
+    resp = c.get("/api/v1/memories?run_id=r1", headers=auth_header)
+    assert resp.status_code == 200
+    _, kwargs = mem.get_all.call_args
+    assert kwargs["filters"]["run_id"] == "r1"
+
+
 def test_delete(app_instance, mem, auth_header):
     c = _client(app_instance)
     resp = c.delete("/api/v1/memories/abc", headers=auth_header)

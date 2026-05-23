@@ -60,6 +60,42 @@ def test_delete(app_instance, mem, auth_header):
     mem.delete.assert_called_once_with(memory_id="abc")
 
 
+def test_get_by_id_found(app_instance, mem, auth_header):
+    mem.get.return_value = {"id": "abc", "memory": "hi"}
+    c = _client(app_instance)
+    resp = c.get("/api/v1/memories/abc", headers=auth_header)
+    assert resp.status_code == 200
+    assert resp.json() == {"id": "abc", "memory": "hi"}
+    mem.get.assert_called_once_with(memory_id="abc")
+
+
+def test_get_by_id_not_found(app_instance, mem, auth_header):
+    mem.get.return_value = None
+    c = _client(app_instance)
+    resp = c.get("/api/v1/memories/missing", headers=auth_header)
+    assert resp.status_code == 404
+    mem.get.assert_called_once_with(memory_id="missing")
+    assert resp.json()["detail"] == "Memory not found"
+
+
+def test_update(app_instance, mem, auth_header):
+    mem.update.return_value = {"id": "abc", "memory": "updated"}
+    c = _client(app_instance)
+    resp = c.put("/api/v1/memories/abc", json={"content": "updated"}, headers=auth_header)
+    assert resp.status_code == 200
+    assert resp.json() == {"id": "abc", "memory": "updated"}
+    mem.update.assert_called_once_with(memory_id="abc", data="updated")
+
+
+def test_history(app_instance, mem, auth_header):
+    mem.history.return_value = [{"event": "ADD"}]
+    c = _client(app_instance)
+    resp = c.get("/api/v1/memories/abc/history", headers=auth_header)
+    assert resp.status_code == 200
+    assert resp.json() == {"history": [{"event": "ADD"}]}
+    mem.history.assert_called_once_with(memory_id="abc")
+
+
 @respx.mock
 def test_healthz_ok(app_instance):
     respx.get("https://qdrant.test:443/collections").mock(

@@ -372,7 +372,13 @@ def test_mcp_401_advertises_resource_metadata(tmp_path, monkeypatch):
             async with mcp_app.lifespan(app):
                 yield
 
+        from urllib.parse import urlparse
+
+        from app import oauth_store
+
+        oauth_store.init_db()
         app = FastAPI(lifespan=lifespan)
+        app.include_router(oauth_mod.router)  # serves the advertised metadata URL
         app.mount("/mcp", mcp_app)
 
         with TestClient(app) as client:
@@ -381,15 +387,24 @@ def test_mcp_401_advertises_resource_metadata(tmp_path, monkeypatch):
                 json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
                 headers={"Accept": "application/json, text/event-stream"},
             )
-        assert resp.status_code == 401
-        www_auth = resp.headers.get("www-authenticate", "")
-        match = re.search(r'resource_metadata="([^"]+)"', www_auth)
-        assert match, f"no resource_metadata in WWW-Authenticate: {www_auth!r}"
-        # Must be the /mcp-scoped protected-resource metadata document, not just
-        # any URL containing "/mcp" — a wrong path here still breaks discovery.
-        assert match.group(1).rstrip("/").endswith(
-            "/.well-known/oauth-protected-resource/mcp"
-        ), match.group(1)
+            assert resp.status_code == 401
+            www_auth = resp.headers.get("www-authenticate", "")
+            match = re.search(r'resource_metadata="([^"]+)"', www_auth)
+            assert match, f"no resource_metadata in WWW-Authenticate: {www_auth!r}"
+            rm_url = match.group(1)
+            # Must be the /mcp-scoped protected-resource metadata document, not
+            # just any URL containing "/mcp" — a wrong path still breaks discovery.
+            assert rm_url.rstrip("/").endswith(
+                "/.well-known/oauth-protected-resource/mcp"
+            ), rm_url
+            # The advertised URL (trailing slash and all) must return 200 WITHOUT
+            # a redirect: strict OAuth clients fetch it verbatim and may not follow
+            # 307s, which is what caused "Couldn't reach the MCP server".
+            meta_resp = client.get(urlparse(rm_url).path, follow_redirects=False)
+            assert meta_resp.status_code == 200, (
+                f"{urlparse(rm_url).path} returned {meta_resp.status_code}, not a direct 200"
+            )
+            assert meta_resp.json()["resource"].endswith("/mcp/")
     finally:
         # monkeypatch handles env restoration; lru_caches must be cleared manually
         # so other tests don't observe OAuth-enabled settings.

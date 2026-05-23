@@ -51,6 +51,7 @@ def test_list(app_instance, mem, auth_header):
     _, kwargs = mem.get_all.call_args
     assert kwargs["filters"]["agent_id"] == "n8n"
     assert kwargs["filters"]["user_id"] == "ian"
+    assert kwargs["top_k"] == 50  # default list limit must reach mem0 as top_k
 
 
 def test_delete(app_instance, mem, auth_header):

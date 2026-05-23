@@ -1,14 +1,14 @@
 from fastmcp import FastMCP
 
+from app import memory as memory_mod
 from app.auth import build_verifier
 from app.config import get_settings
-from app.memory import get_memory as load_memory
 
 
 def build_mcp() -> FastMCP:
     s = get_settings()
     mcp = FastMCP("mem0-server", auth=build_verifier())
-    memory = load_memory()
+    memory = memory_mod.get_memory()
     default_user = s.mem0_default_user_id
 
     @mcp.tool

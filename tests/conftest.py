@@ -19,17 +19,16 @@ os.environ.update(
     }
 )
 
-# Shared fake mem0 Memory instance. Patched into every module that calls
-# get_memory() *before* app.main is imported (build_mcp calls it at import).
+# Shared fake mem0 Memory instance. app.rest and app.mcp_server both resolve
+# the store through `app.memory.get_memory()` at call time, so patching that one
+# attribute is the single, refactor-proof seam. Done before app.main is imported
+# (build_mcp calls get_memory() at import time).
 FAKE_MEMORY = MagicMock(name="Memory")
 
-import app.mcp_server as mcp_mod  # noqa: E402
 import app.memory as memory_mod  # noqa: E402
-import app.rest as rest_mod  # noqa: E402
 
+memory_mod.get_memory.cache_clear()
 memory_mod.get_memory = lambda: FAKE_MEMORY
-rest_mod.get_memory = lambda: FAKE_MEMORY
-mcp_mod.load_memory = lambda: FAKE_MEMORY
 
 
 @pytest.fixture

@@ -4,9 +4,9 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app import memory as memory_mod
 from app.auth import require_bearer
 from app.config import get_settings
-from app.memory import get_memory
 
 router = APIRouter(dependencies=[Depends(require_bearer)])
 
@@ -52,7 +52,7 @@ def _scope_kwargs(
 def add_memory(req: AddMemoryRequest) -> dict:
     if not req.content and not req.messages:
         raise HTTPException(status_code=422, detail="Provide either 'content' or 'messages'")
-    memory = get_memory()
+    memory = memory_mod.get_memory()
     payload = req.content if req.content is not None else [m.model_dump() for m in req.messages]
     kwargs = _scope_kwargs(req.user_id, req.agent_id, req.run_id)
     if req.metadata:
@@ -62,7 +62,7 @@ def add_memory(req: AddMemoryRequest) -> dict:
 
 @router.post("/memories/search")
 def search_memories(req: SearchRequest) -> dict:
-    memory = get_memory()
+    memory = memory_mod.get_memory()
     kwargs = _scope_kwargs(req.user_id, req.agent_id)
     kwargs["limit"] = req.limit
     return memory.search(query=req.query, **kwargs)
@@ -70,7 +70,7 @@ def search_memories(req: SearchRequest) -> dict:
 
 @router.get("/memories")
 def list_memories(user_id: str | None = None, agent_id: str | None = None, limit: int = 50) -> dict:
-    memory = get_memory()
+    memory = memory_mod.get_memory()
     kwargs = _scope_kwargs(user_id, agent_id)
     kwargs["limit"] = limit
     return memory.get_all(**kwargs)
@@ -78,7 +78,7 @@ def list_memories(user_id: str | None = None, agent_id: str | None = None, limit
 
 @router.get("/memories/{memory_id}")
 def get_memory_by_id(memory_id: str) -> dict:
-    memory = get_memory()
+    memory = memory_mod.get_memory()
     result = memory.get(memory_id=memory_id)
     if not result:
         raise HTTPException(status_code=404, detail="Memory not found")
@@ -87,20 +87,20 @@ def get_memory_by_id(memory_id: str) -> dict:
 
 @router.put("/memories/{memory_id}")
 def update_memory(memory_id: str, req: UpdateMemoryRequest) -> dict:
-    memory = get_memory()
+    memory = memory_mod.get_memory()
     return memory.update(memory_id=memory_id, data=req.content)
 
 
 @router.delete("/memories/{memory_id}")
 def delete_memory(memory_id: str) -> dict:
-    memory = get_memory()
+    memory = memory_mod.get_memory()
     memory.delete(memory_id=memory_id)
     return {"deleted": True, "memory_id": memory_id}
 
 
 @router.get("/memories/{memory_id}/history")
 def memory_history(memory_id: str) -> dict:
-    memory = get_memory()
+    memory = memory_mod.get_memory()
     return {"history": memory.history(memory_id=memory_id)}
 
 

@@ -18,6 +18,7 @@ router = APIRouter()
 
 TOKEN_TTL = 24 * 3600
 KEY_ID = "mem0-oauth-1"
+SCOPES = ["read", "write"]
 
 
 @lru_cache
@@ -81,7 +82,7 @@ def _as_metadata() -> dict:
         "code_challenge_methods_supported": ["S256"],
         # Public clients only; PKCE protects the code exchange.
         "token_endpoint_auth_methods_supported": ["none"],
-        "scopes_supported": ["read", "write"],
+        "scopes_supported": SCOPES,
     }
 
 
@@ -90,7 +91,7 @@ def _protected_resource_metadata() -> dict:
     return {
         "resource": f"{base}/mcp/",
         "authorization_servers": [base],
-        "scopes_supported": ["read", "write"],
+        "scopes_supported": SCOPES,
         "bearer_methods_supported": ["header"],
     }
 

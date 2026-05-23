@@ -72,12 +72,18 @@ def test_protected_resource_metadata(oauth_client):
         assert meta["resource"] == "https://mem0.test/mcp/"
         assert meta["authorization_servers"] == ["https://mem0.test"]
         assert meta["bearer_methods_supported"] == ["header"]
+        assert meta["scopes_supported"] == ["read", "write"]
 
 
 def test_path_scoped_as_metadata(oauth_client):
-    meta = oauth_client.get("/.well-known/oauth-authorization-server/mcp").json()
-    assert meta["issuer"] == "https://mem0.test"
-    assert meta["token_endpoint"] == "https://mem0.test/oauth/token"
+    for path in (
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-authorization-server/mcp",
+    ):
+        meta = oauth_client.get(path).json()
+        assert meta["issuer"] == "https://mem0.test"
+        assert meta["token_endpoint"] == "https://mem0.test/oauth/token"
+        assert meta["scopes_supported"] == ["read", "write"]
 
 
 def test_dcr_rejects_disallowed_uri(oauth_client):

@@ -32,7 +32,10 @@ async def main() -> int:
     async with Client(transport) as client:
         tools = {t.name for t in await client.list_tools()}
         print(f"4. MCP connected; tools: {sorted(tools)}")
-        assert "add_memory" in tools and "search_memories" in tools
+        missing = {"add_memory", "search_memories"} - tools
+        if missing:
+            print(f"FAIL: required MCP tools missing: {sorted(missing)}")
+            return 1
 
         await client.call_tool(
             "add_memory",
@@ -44,13 +47,30 @@ async def main() -> int:
             "search_memories", {"query": "how does Ian deploy?", "agent_id": "smoke-mcp"}
         )
         print(f"5. search_memories via MCP returned: {res.data}")
+        if not _results(res):
+            print("FAIL: MCP search_memories returned no results")
+            return 1
 
         if rest_probe:
-            cross = await client.call_tool("search_memories", {"query": rest_probe})
+            # Cross-protocol check: a fact added over REST (agent_id=smoke) must
+            # be findable over MCP, proving both protocols share one Memory.
+            cross = await client.call_tool(
+                "search_memories", {"query": rest_probe, "agent_id": "smoke"}
+            )
             print(f"   cross-protocol search (REST-added fact) via MCP: {cross.data}")
+            if not _results(cross):
+                print("FAIL: cross-protocol search returned no results")
+                return 1
 
     print("MCP smoke complete.")
     return 0
+
+
+def _results(call_result) -> list:
+    data = getattr(call_result, "data", None)
+    if isinstance(data, dict):
+        return data.get("results") or []
+    return data or []
 
 
 if __name__ == "__main__":

@@ -10,7 +10,12 @@ It uses an existing external **Qdrant** instance as the vector backend, deploys 
 on push to `main`, and ships a companion `mem0-backup` app that snapshots Qdrant to S3 nightly.
 This is a **single-user** system: `MEM0_DEFAULT_USER_ID` is the only user.
 
-See [`docs/PRD.md`](docs/PRD.md) for the full specification.
+**Documentation:**
+- [User Guide](docs/USER_GUIDE.md) — deploy to CapRover, configure, connect clients, REST API, backups, troubleshooting.
+- [Developer Guide](docs/DEVELOPER_GUIDE.md) — architecture, module map, auth, testing, how to make common changes.
+- [`docs/PRD.md`](docs/PRD.md) — the full specification.
+
+The sections below are a quick reference; the guides above go deeper.
 
 ## Architecture
 

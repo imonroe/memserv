@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This repository is **pre-implementation**. The only substantive content is `docs/PRD.md` — a complete, implementation-ready spec for a self-hosted mem0 memory server. There is no `app/`, `tests/`, `Dockerfile`, or dependency manifest yet. **`docs/PRD.md` is the source of truth**; read it before building anything. Section 17 of the PRD is an ordered, milestone-based task list for the build.
+This repository is **implemented** (Phase 1 + Phase 2). The full app lives in `app/`, with a test suite in `tests/`, a root `Dockerfile`/`captain-definition`, a `backup/` app, and CI in `.github/workflows/ci.yml`. **`docs/PRD.md` remains the source of truth for intent and design**; read it before changing behavior. Section 17 of the PRD is the milestone-based task list it was built from.
+
+Documentation:
+- `docs/USER_GUIDE.md` — operators/end users: deploy to CapRover, configure, connect clients, REST API, backups, troubleshooting.
+- `docs/DEVELOPER_GUIDE.md` — contributors: architecture, module map, request flow, auth, testing, how to make common changes.
+- `docs/PRD.md` — the spec.
+
+When code and the guides drift, update the guides in the same change.
 
 ## What this project is
 
@@ -36,10 +43,10 @@ Phase 1 (MVP) = static bearer-token auth. Phase 2 adds OAuth 2.1 + PKCE + DCR en
 - `app/main.py` — wiring (FastAPI + FastMCP mount + lifespan + `/healthz`).
 - `backup/` — separate CapRover app: Alpine + crond running `backup.sh` nightly. No exposed ports.
 
-## Commands (per PRD §13/§16; not yet runnable — no manifests exist)
+## Commands (per PRD §13/§16)
 
 ```bash
-# Install (intended)
+# Install
 pip install -r requirements.txt
 pip install pytest pytest-asyncio respx ruff
 
@@ -53,7 +60,7 @@ cp .env.example .env   # fill in values
 uvicorn app.main:app --reload --port 8000
 ```
 
-When you create the manifests, follow PRD Appendix B (`requirements.txt`) and §13.3 (`.github/workflows/ci.yml`).
+Dependencies are pinned in `requirements.txt` (per PRD Appendix B); CI is in `.github/workflows/ci.yml` (per PRD §13.3).
 
 ## Deployment notes
 

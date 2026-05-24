@@ -32,7 +32,7 @@ async def test_add_memory_tool(mcp, mem):
     mem.add.assert_called_once()
     args, kwargs = mem.add.call_args
     assert args[0] == "remember this"
-    assert kwargs["user_id"] == "ian"
+    assert kwargs["user_id"] == "default-user"
 
 
 async def test_search_memories_tool(mcp, mem):
@@ -41,7 +41,7 @@ async def test_search_memories_tool(mcp, mem):
         await client.call_tool("search_memories", {"query": "what", "limit": 7})
     _, kwargs = mem.search.call_args
     # Reads are never scoped by agent_id: the store is shared across agents.
-    assert kwargs["filters"] == {"user_id": "ian"}
+    assert kwargs["filters"] == {"user_id": "default-user"}
     assert kwargs["top_k"] == 7
 
 
@@ -60,7 +60,7 @@ async def test_list_memories_tool(mcp, mem):
     async with Client(mcp) as client:
         await client.call_tool("list_memories", {})
     _, kwargs = mem.get_all.call_args
-    assert kwargs["filters"] == {"user_id": "ian"}
+    assert kwargs["filters"] == {"user_id": "default-user"}
 
 
 async def test_delete_memory_tool(mcp, mem):

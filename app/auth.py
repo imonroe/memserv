@@ -47,16 +47,18 @@ class CompositeVerifier(TokenVerifier):
         static_token: str,
         jwt_public_key: str | None = None,
         issuer: str | None = None,
+        static_client_id: str = "default-user",
     ):
         super().__init__()
         self.static_token = static_token
         self.jwt_public_key = jwt_public_key
         self.issuer = issuer
+        self.static_client_id = static_client_id
 
     async def verify_token(self, token: str) -> AccessToken | None:
         if self.static_token and secrets.compare_digest(token, self.static_token):
             return AccessToken(
-                token=token, client_id="ian", scopes=["read", "write"]
+                token=token, client_id=self.static_client_id, scopes=["read", "write"]
             )
         if not self.jwt_public_key:
             return None
@@ -89,6 +91,7 @@ def build_verifier() -> AuthProvider:
             static_token=s.mem0_api_key,
             jwt_public_key=public_key_pem(),
             issuer=base,
+            static_client_id=s.mem0_default_user_id,
         )
         # Wrap the verifier so the mounted MCP app advertises the protected
         # resource metadata URL in the 401 WWW-Authenticate header (RFC 9728).
@@ -105,5 +108,10 @@ def build_verifier() -> AuthProvider:
             scopes_supported=SCOPES,
         )
     return StaticTokenVerifier(
-        tokens={s.mem0_api_key: {"client_id": "ian", "scopes": ["read", "write"]}}
+        tokens={
+            s.mem0_api_key: {
+                "client_id": s.mem0_default_user_id,
+                "scopes": ["read", "write"],
+            }
+        }
     )

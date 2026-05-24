@@ -194,7 +194,7 @@ def test_full_authorize_token_flow(oauth_client):
     jwks = oauth_client.get("/.well-known/jwks.json").json()
     pub_pem = _pub_from_jwks(jwks)
     payload = jwt.decode(access_token, pub_pem, algorithms=["RS256"], audience="mem0-server")
-    assert payload["sub"] == "ian"
+    assert payload["sub"] == "default-user"
     assert payload["scope"] == "read write"
 
 

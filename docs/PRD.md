@@ -1,7 +1,7 @@
 # PRD: Self-Hosted mem0 Memory Server
 
 **Project name:** `mem0-server`
-**Owner:** Ian Monroe
+**Owner:** project maintainer
 **Status:** Ready for implementation
 **Target deployment:** CapRover on Digital Ocean (existing droplet)
 **Existing infrastructure:** Qdrant already deployed on CapRover at `qdrant.<domain>` with API key auth and HTTPS.
@@ -18,7 +18,7 @@ Build and deploy a single self-hosted Python service that exposes a shared mem0 
 2. **One server, two protocols.** REST for scripts, n8n, Hermes Agent, and ad-hoc curl. Streamable HTTP MCP for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
 3. **Push-to-deploy.** Merges to `main` trigger CapRover to pull, build, and redeploy without manual intervention.
 4. **Operational durability.** Nightly Qdrant snapshots are uploaded to S3. Droplet loss does not equal memory loss.
-5. **Multi-client, multi-machine.** The server is the single source of truth; clients on any of Ian's machines connect to it over HTTPS.
+5. **Multi-client, multi-machine.** The server is the single source of truth; clients on any of your machines connect to it over HTTPS.
 
 ### 1.2 Non-goals
 
@@ -86,15 +86,15 @@ Build and deploy a single self-hosted Python service that exposes a shared mem0 
                                  ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │                  CapRover app: qdrant (existing)                    │
-│           Collection: ian_memories  (vectors + payload)             │
+│           Collection: memories  (vectors + payload)                 │
 └────────────────────────────────┬───────────────────────────────────┘
                                  │ Snapshot API
                                  ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │              CapRover app: mem0-backup (this repo)                  │
 │   Cron @ 03:00 UTC daily                                            │
-│   ├── POST /collections/ian_memories/snapshots  (create)            │
-│   ├── GET  /collections/ian_memories/snapshots/{name}  (download)   │
+│   ├── POST /collections/memories/snapshots  (create)            │
+│   ├── GET  /collections/memories/snapshots/{name}  (download)   │
 │   └── Upload to s3://<bucket>/mem0-backups/{date}.snapshot          │
 │   Retention: keep last 14 days in S3, last 3 on local volume        │
 └────────────────────────────────────────────────────────────────────┘
@@ -183,8 +183,8 @@ All configuration is via environment variables. The `Settings` class in `app/con
 | `QDRANT_PORT` | no | `443` | |
 | `QDRANT_HTTPS` | no | `true` | |
 | `QDRANT_API_KEY` | yes | — | Key configured on Qdrant |
-| `MEM0_COLLECTION` | no | `ian_memories` | |
-| `MEM0_DEFAULT_USER_ID` | yes | — | e.g. `ian`. Used as fallback when clients don't supply one. |
+| `MEM0_COLLECTION` | no | `memories` | |
+| `MEM0_DEFAULT_USER_ID` | yes | — | e.g. `default-user`. Used as fallback when clients don't supply one. |
 | `MEM0_LLM_PROVIDER` | no | `anthropic` | mem0 LLM for fact extraction |
 | `MEM0_LLM_MODEL` | no | `claude-haiku-4-5-20251001` | |
 | `ANTHROPIC_API_KEY` | conditional | — | Required if `MEM0_LLM_PROVIDER=anthropic` |
@@ -218,7 +218,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str
 
     # mem0 core
-    mem0_collection: str = "ian_memories"
+    mem0_collection: str = "memories"
     mem0_default_user_id: str
 
     # LLM (fact extraction)
@@ -490,7 +490,7 @@ def build_verifier():
     s = get_settings()
     return StaticTokenVerifier(
         tokens={
-            s.mem0_api_key: {"client_id": "ian", "scopes": ["read", "write"]}
+            s.mem0_api_key: {"client_id": s.mem0_default_user_id, "scopes": ["read", "write"]}
         }
     )
 ```
@@ -511,7 +511,7 @@ class CompositeVerifier(TokenVerifier):
 
     async def verify_token(self, token: str):
         if token == self.static_token:
-            return {"client_id": "ian", "scopes": ["read", "write"]}
+            return {"client_id": settings.mem0_default_user_id, "scopes": ["read", "write"]}
         try:
             payload = jwt.decode(
                 token, self.jwt_public_key, algorithms=["RS256"],
@@ -587,7 +587,7 @@ Required by Claude.ai web and Cowork. The MCP server itself acts as the OAuth Au
   ```json
   {
     "iss": "https://mem0.your-domain.com",
-    "sub": "ian",
+    "sub": "<MEM0_DEFAULT_USER_ID>",
     "aud": "mem0-server",
     "scope": "read write",
     "client_id": "<the registered client_id>",
@@ -830,11 +830,11 @@ aws s3 cp s3://<bucket>/mem0-backups/2026-05-20T03-00-00Z.snapshot ./
 curl -X POST \
   -H "api-key: $QDRANT_API_KEY" \
   -F "snapshot=@2026-05-20T03-00-00Z.snapshot" \
-  "https://qdrant.your-domain.com/collections/ian_memories/snapshots/upload"
+  "https://qdrant.your-domain.com/collections/memories/snapshots/upload"
 
 # 3. Verify
 curl -H "api-key: $QDRANT_API_KEY" \
-  "https://qdrant.your-domain.com/collections/ian_memories"
+  "https://qdrant.your-domain.com/collections/memories"
 ```
 
 A monthly restore drill (restore to a test collection, verify count) is strongly recommended but not part of v1 automation.
@@ -941,13 +941,13 @@ export MEM0_API_KEY=...
 curl -X POST $MEM0_URL/api/v1/memories \
   -H "Authorization: Bearer $MEM0_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"content": "Ian uses CapRover on DO", "agent_id": "n8n-flow"}'
+  -d '{"content": "We deploy with CapRover on DO", "agent_id": "n8n-flow"}'
 
 # Search
 curl -X POST $MEM0_URL/api/v1/memories/search \
   -H "Authorization: Bearer $MEM0_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"query": "where does Ian host things?"}'
+  -d '{"query": "where do we host things?"}'
 ```
 
 ---
@@ -1089,8 +1089,8 @@ QDRANT_HTTPS=true
 QDRANT_API_KEY=replace-me
 
 # mem0 core
-MEM0_COLLECTION=ian_memories
-MEM0_DEFAULT_USER_ID=ian
+MEM0_COLLECTION=memories
+MEM0_DEFAULT_USER_ID=default-user
 
 # LLM for fact extraction
 MEM0_LLM_PROVIDER=anthropic

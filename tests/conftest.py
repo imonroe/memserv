@@ -10,7 +10,7 @@ os.environ.update(
         "QDRANT_HTTPS": "true",
         "QDRANT_API_KEY": "test-qdrant-key",
         "MEM0_COLLECTION": "test_memories",
-        "MEM0_DEFAULT_USER_ID": "ian",
+        "MEM0_DEFAULT_USER_ID": "default-user",
         "ANTHROPIC_API_KEY": "test-anthropic",
         "OPENAI_API_KEY": "test-openai",
         "MEM0_API_KEY": "test-bearer-token",

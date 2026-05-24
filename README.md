@@ -61,11 +61,29 @@ the full list. Key ones:
 | Variable | Notes |
 |---|---|
 | `QDRANT_HOST`, `QDRANT_API_KEY` | external Qdrant instance |
-| `MEM0_DEFAULT_USER_ID` | the single user (e.g. `ian`) |
+| `MEM0_DEFAULT_USER_ID` | the single user (e.g. `default-user`) |
 | `MEM0_EMBED_DIMS` | **must** match the embedder's output dim (3-small=1536) |
 | `MEM0_API_KEY` | static bearer token; `openssl rand -hex 32` |
 | `PUBLIC_BASE_URL` | public URL, used in OAuth metadata |
 | `OAUTH_SIGNING_KEY` | PEM RSA private key; setting it enables Phase 2 OAuth |
+
+## Deploy with Docker Compose
+
+The simplest way to self-host if you don't already run CapRover. The bundled
+`docker-compose.yml` brings up **Qdrant and the app together** — no external
+Qdrant required.
+
+```bash
+cp .env.example .env   # fill in ANTHROPIC_API_KEY, OPENAI_API_KEY, MEM0_API_KEY, QDRANT_API_KEY
+docker compose up -d
+```
+
+The compose file points the app at the in-stack Qdrant automatically (you don't
+need to touch `QDRANT_HOST`/`QDRANT_PORT`/`QDRANT_HTTPS`). The server comes up at
+`http://localhost:8000` — REST under `/api/v1`, MCP at `/mcp`. For Phase 2 OAuth,
+set `OAUTH_SIGNING_KEY` and a public `PUBLIC_BASE_URL` in `.env` and put the stack
+behind an HTTPS reverse proxy. See the
+[User Guide](docs/USER_GUIDE.md#deploying-with-docker-compose) for details.
 
 ## Production deploy (CapRover)
 
@@ -96,11 +114,11 @@ claude mcp add --scope user --transport http mem0-remote \
 ```bash
 curl -X POST https://mem0.your-domain.com/api/v1/memories \
   -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
-  -d '{"content": "Ian uses CapRover on DO", "agent_id": "n8n-flow"}'
+  -d '{"content": "We deploy services with CapRover", "agent_id": "n8n-flow"}'
 
 curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
   -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
-  -d '{"query": "where does Ian host things?"}'
+  -d '{"query": "how do we deploy services?"}'
 ```
 
 **Claude.ai web / Cowork (Phase 2):** add a custom connector pointing at
@@ -118,11 +136,11 @@ aws s3 cp s3://<bucket>/mem0-backups/2026-05-20T03-00-00Z.snapshot ./
 # 2. Upload to Qdrant
 curl -X POST -H "api-key: $QDRANT_API_KEY" \
   -F "snapshot=@2026-05-20T03-00-00Z.snapshot" \
-  "https://qdrant.your-domain.com/collections/ian_memories/snapshots/upload"
+  "https://qdrant.your-domain.com/collections/memories/snapshots/upload"
 
 # 3. Verify
 curl -H "api-key: $QDRANT_API_KEY" \
-  "https://qdrant.your-domain.com/collections/ian_memories"
+  "https://qdrant.your-domain.com/collections/memories"
 ```
 
 ## Troubleshooting

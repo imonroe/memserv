@@ -84,6 +84,7 @@ scripts/            smoke.sh (REST) and smoke_mcp.py (MCP) against a live server
 docs/               PRD.md (spec), USER_GUIDE.md, DEVELOPER_GUIDE.md.
 Dockerfile          Main app image; runs uvicorn with --workers 2.
 captain-definition  CapRover build descriptor for the main app.
+docker-compose.yml  Self-contained stack (Qdrant + app) for non-CapRover hosts.
 ```
 
 ## Request and data flow
@@ -225,8 +226,13 @@ reads the `Authorization` header, so tokens are never logged.
 
 - **CI** (`.github/workflows/ci.yml`) runs on pushes to `main` and on all PRs: installs deps, then
   `ruff check app/` and `pytest -q` on Python 3.12.
-- **Deploy** is push-to-`main` → CapRover webhook, independent of CI status. The main app builds
-  from the root `Dockerfile` / `captain-definition` and runs `uvicorn app.main:app --workers 2`.
+- **Deploy** has two supported paths (same app image, different infrastructure):
+  - **CapRover** — push-to-`main` → CapRover webhook, independent of CI status. The main app builds
+    from the root `Dockerfile` / `captain-definition` and runs `uvicorn app.main:app --workers 2`.
+    Connects to an external Qdrant.
+  - **Docker Compose** — `docker-compose.yml` builds the same `Dockerfile` and brings up the app
+    alongside a bundled Qdrant service, overriding `QDRANT_HOST`/`QDRANT_PORT`/`QDRANT_HTTPS` to the
+    in-stack service. See the [User Guide](USER_GUIDE.md#deploying-with-docker-compose).
 - The **backup app** is a second CapRover app built from `backup/` (separate `captain-definition`).
   See the [User Guide](USER_GUIDE.md#2-deploy-the-backup-app-mem0-backup).
 - The main app is stateless in Phase 1; only Phase 2 OAuth uses the `/app/data` persistent volume

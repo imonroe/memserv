@@ -7,7 +7,7 @@ from app.config import Settings
 def test_settings_load_from_env():
     s = Settings()
     assert s.qdrant_host == "qdrant.test"
-    assert s.mem0_default_user_id == "ian"
+    assert s.mem0_default_user_id == "default-user"
     assert s.mem0_api_key == "test-bearer-token"
 
 

@@ -125,6 +125,11 @@ curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
 `https://mem0.your-domain.com/mcp/`, leave client ID/secret blank (DCR registers
 automatically), and complete the consent redirect.
 
+**Make agents actually use it:** connecting a client only makes the memory tools available — add a
+short instruction block to your `CLAUDE.md` / ChatGPT custom instructions / `AGENTS.md` so the
+agent recalls and saves memory every session. Copy-paste snippets are in the
+[User Guide](docs/USER_GUIDE.md#prompting-agents-to-use-memory).
+
 A smoke test against a live server is in `scripts/smoke.sh`.
 
 ## Restore drill

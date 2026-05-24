@@ -19,6 +19,10 @@ connect clients to it, and use it day to day. If you want to work on the code it
   - [Claude.ai web / Cowork (OAuth)](#claudeai-web--cowork-oauth)
   - [ChatGPT (OAuth, Developer Mode)](#chatgpt-oauth-developer-mode)
   - [REST / curl / n8n](#rest--curl--n8n)
+- [Prompting agents to use memory](#prompting-agents-to-use-memory)
+  - [Claude (CLAUDE.md)](#claude-claudemd)
+  - [ChatGPT (custom instructions)](#chatgpt-custom-instructions)
+  - [Other agents (AGENTS.md and similar)](#other-agents-agentsmd-and-similar)
 - [REST API reference](#rest-api-reference)
 - [Backups and restore](#backups-and-restore)
 - [Health and monitoring](#health-and-monitoring)
@@ -295,6 +299,85 @@ a typo can't accidentally allow a lookalike host such as `chatgpt.com.evil.com`.
 
 Send the bearer token as an `Authorization` header. See the [REST API reference](#rest-api-reference)
 below.
+
+## Prompting agents to use memory
+
+Connecting a client only makes the memory tools *available* — it does not make the agent *use*
+them. Models won't reliably search or save memory on their own; you have to tell them to. The most
+durable way is to put a short instruction block in whatever file the agent reads at the start of
+every session (`CLAUDE.md`, ChatGPT custom instructions, `AGENTS.md`, a system prompt, etc.).
+
+A good memory instruction covers four behaviors:
+
+1. **Recall first** — search memory at the start of a task, before answering, so past context is used.
+2. **Save durable facts** — persist preferences, decisions, project conventions, and recurring
+   context as they come up (not transient chatter).
+3. **Update, don't duplicate** — when something changes, update the existing memory instead of
+   adding a near-duplicate.
+4. **Don't store secrets** — never save passwords, API keys, or sensitive personal data.
+
+The server exposes six tools: `search_memories`, `add_memory`, `list_memories`, `get_memory`,
+`update_memory`, `delete_memory`. Adjust the tool/connector names below to match how your client
+surfaces them (for example, Claude Code namespaces them like `mcp__mem0-remote__search_memories`).
+
+### Claude (CLAUDE.md)
+
+For **Claude Code**, add this to the project's `CLAUDE.md` (or your user-level
+`~/.claude/CLAUDE.md` to apply it everywhere). For **Claude Desktop**, paste the same text into a
+Project's custom instructions.
+
+```markdown
+## Long-term memory (mem0)
+
+You have a persistent memory store available through the mem0 MCP server. Use it in every session:
+
+- **At the start of a task**, call `search_memories` with a query about the topic to recall any
+  relevant preferences, decisions, or context before you respond.
+- **When the user shares** a durable preference, decision, project convention, or fact they'll
+  likely want recalled later, call `add_memory` to save it. Keep each memory a single clear fact.
+- **When something changes**, find the existing memory (`search_memories` / `list_memories`) and
+  `update_memory` it instead of adding a duplicate.
+- Do **not** store secrets, credentials, or sensitive personal data.
+- You don't need to announce routine memory operations; just use them naturally.
+```
+
+### ChatGPT (custom instructions)
+
+In ChatGPT, open **Settings → Personalization → Custom instructions** (or a Project's
+instructions) and add the following to the "How would you like ChatGPT to respond?" box. This
+assumes you've connected the mem0 connector in Developer Mode (see
+[ChatGPT (OAuth, Developer Mode)](#chatgpt-oauth-developer-mode)).
+
+```text
+I have a personal long-term memory store connected via the mem0 MCP connector. Use it every session:
+- Before answering a substantive question, use the connector's search_memories tool to recall any
+  relevant saved preferences, decisions, or context.
+- When I share a durable preference, decision, or fact worth remembering, use add_memory to save it
+  as a single clear statement.
+- If something changes, update the existing memory rather than creating a duplicate.
+- Never store passwords, API keys, or sensitive personal data.
+```
+
+### Other agents (AGENTS.md and similar)
+
+Many coding agents and frameworks read an `AGENTS.md` (or an equivalent system-prompt/rules file)
+at session start. Drop in a tool-agnostic version:
+
+```markdown
+## Memory
+
+A shared long-term memory store is available via the mem0 MCP server. Behavior:
+
+1. Recall: at the start of a task, search memory for context relevant to the request before acting.
+2. Persist: save durable facts, preferences, decisions, and conventions as they arise.
+3. Reconcile: update an existing memory when it changes; avoid near-duplicates.
+4. Safety: never store secrets, credentials, or sensitive personal data.
+
+Tools: search_memories, add_memory, list_memories, get_memory, update_memory, delete_memory.
+```
+
+If your agent has no instruction file but does take a system prompt, the same four numbered rules
+work verbatim there.
 
 ## REST API reference
 

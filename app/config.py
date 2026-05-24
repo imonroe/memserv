@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str
 
     # mem0 core
-    mem0_collection: str = "ian_memories"
+    mem0_collection: str = "memories"
     mem0_default_user_id: str
 
     # LLM (fact extraction)

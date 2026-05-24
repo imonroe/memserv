@@ -297,7 +297,7 @@ def _issue_tokens(client_id: str) -> dict:
     now = int(time.time())
     claims = {
         "iss": s.public_base_url.rstrip("/"),
-        "sub": "ian",
+        "sub": s.mem0_default_user_id,
         "aud": "mem0-server",
         "scope": " ".join(SCOPES),
         "client_id": client_id,

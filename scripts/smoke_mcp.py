@@ -39,12 +39,12 @@ async def main() -> int:
 
         await client.call_tool(
             "add_memory",
-            {"content": "smoke-test (mcp): Ian deploys via CapRover", "agent_id": "smoke-mcp"},
+            {"content": "smoke-test (mcp): the team deploys via CapRover", "agent_id": "smoke-mcp"},
         )
         print("   add_memory via MCP: ok")
 
         res = await client.call_tool(
-            "search_memories", {"query": "how does Ian deploy?", "agent_id": "smoke-mcp"}
+            "search_memories", {"query": "how does the team deploy?", "agent_id": "smoke-mcp"}
         )
         print(f"5. search_memories via MCP returned: {res.data}")
         if not _results(res):

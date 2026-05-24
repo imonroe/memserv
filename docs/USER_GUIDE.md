@@ -8,6 +8,8 @@ connect clients to it, and use it day to day. If you want to work on the code it
 - [How memory works](#how-memory-works)
 - [Prerequisites](#prerequisites)
 - [Configuration reference](#configuration-reference)
+- [Choosing a deployment method](#choosing-a-deployment-method)
+- [Deploying with Docker Compose](#deploying-with-docker-compose)
 - [Deploying to CapRover](#deploying-to-caprover)
   - [1. Deploy the main app](#1-deploy-the-main-app-mem0-server)
   - [2. Deploy the backup app](#2-deploy-the-backup-app-mem0-backup)
@@ -17,6 +19,10 @@ connect clients to it, and use it day to day. If you want to work on the code it
   - [Claude.ai web / Cowork (OAuth)](#claudeai-web--cowork-oauth)
   - [ChatGPT (OAuth, Developer Mode)](#chatgpt-oauth-developer-mode)
   - [REST / curl / n8n](#rest--curl--n8n)
+- [Prompting agents to use memory](#prompting-agents-to-use-memory)
+  - [Claude (CLAUDE.md)](#claude-claudemd)
+  - [ChatGPT (custom instructions)](#chatgpt-custom-instructions)
+  - [Other agents (AGENTS.md and similar)](#other-agents-agentsmd-and-similar)
 - [REST API reference](#rest-api-reference)
 - [Backups and restore](#backups-and-restore)
 - [Health and monitoring](#health-and-monitoring)
@@ -61,12 +67,12 @@ Before deploying you need:
 
 | Requirement | Why |
 |---|---|
-| A **CapRover** instance | Hosts the app; deploys on push to `main`. |
-| A reachable **Qdrant** instance (with API key) | Vector backend that stores the memories. |
+| **Docker** + Docker Compose, **or** a **CapRover** instance | Runs the app. See [Choosing a deployment method](#choosing-a-deployment-method). |
+| A reachable **Qdrant** instance (with API key) | Vector backend that stores the memories. The Docker Compose method provides this for you. |
 | An **Anthropic API key** | Default LLM for fact extraction. |
 | An **OpenAI API key** | Default embedding model. |
-| An **S3 bucket** + AWS credentials | Only for the nightly backup app. |
-| A **domain/subdomain** (e.g. `mem0.your-domain.com`) | Public HTTPS URL for clients and OAuth. |
+| An **S3 bucket** + AWS credentials | Only for the nightly backup app (CapRover). |
+| A **domain/subdomain** (e.g. `mem0.your-domain.com`) | Public HTTPS URL for clients and OAuth. Optional for a local Docker Compose run. |
 
 You can swap the LLM/embedder providers (see [Configuration reference](#configuration-reference)),
 but the defaults above are the supported path.
@@ -88,8 +94,8 @@ runs, or set these in the CapRover app's **App Configs** panel for production.
 | `QDRANT_PORT` | no | `443` | Qdrant port. |
 | `QDRANT_HTTPS` | no | `true` | Use HTTPS to reach Qdrant. |
 | `QDRANT_API_KEY` | yes | — | Qdrant API key. |
-| `MEM0_COLLECTION` | no | `ian_memories` | Qdrant collection name. |
-| `MEM0_DEFAULT_USER_ID` | yes | — | The single user, e.g. `ian`. |
+| `MEM0_COLLECTION` | no | `memories` | Qdrant collection name. |
+| `MEM0_DEFAULT_USER_ID` | yes | — | The single user, e.g. `default-user`. |
 | `MEM0_LLM_PROVIDER` | no | `anthropic` | LLM provider for fact extraction. |
 | `MEM0_LLM_MODEL` | no | `claude-haiku-4-5-20251001` | LLM model. |
 | `ANTHROPIC_API_KEY` | if provider=anthropic | — | Required when the LLM provider is Anthropic. |
@@ -120,8 +126,77 @@ openssl genrsa 2048
 When pasting a multi-line PEM into a single env var, replace newlines with `\n` — the app converts
 `\n` back to real newlines at load time.
 
+## Choosing a deployment method
+
+There are two supported ways to run mem0-server:
+
+- **Docker Compose** — the simplest path if you don't already run CapRover. One `docker compose up`
+  brings up **both Qdrant and the app** on a single host, with persistent volumes for each. You
+  manage your own HTTPS (typically via a reverse proxy) and your own backups. Best for a single VM,
+  a homelab, or local use.
+- **CapRover** — best if you already operate a CapRover instance and want push-to-`main`
+  auto-deploy plus the companion nightly S3 backup app. This method connects to an **existing,
+  external** Qdrant.
+
+The application is identical in both cases; only the surrounding infrastructure differs. The
+sections below cover each.
+
+## Deploying with Docker Compose
+
+The repository ships a `docker-compose.yml` that runs Qdrant and the app together. You do **not**
+need an external Qdrant for this method.
+
+1. Copy the example environment file and fill in the secrets:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   At minimum set: `MEM0_API_KEY` (generate with `openssl rand -hex 32`), `QDRANT_API_KEY` (any
+   strong secret — the bundled Qdrant is configured to require it), `ANTHROPIC_API_KEY`,
+   `OPENAI_API_KEY`, and `MEM0_DEFAULT_USER_ID`.
+
+   You can leave `QDRANT_HOST`, `QDRANT_PORT`, and `QDRANT_HTTPS` at their `.env.example` values —
+   the compose file overrides them to point at the in-stack Qdrant service (`qdrant:6333`, no TLS
+   on the internal network).
+
+2. Bring up the stack:
+
+   ```bash
+   docker compose up -d
+   ```
+
+   This builds the app image from the root `Dockerfile`, starts Qdrant with a persistent
+   `qdrant_data` volume, and starts the app on `http://localhost:8000`. The app's `/healthz`
+   endpoint round-trips to Qdrant; once it returns `{"ok": true, ...}` the stack is ready.
+
+3. Verify:
+
+   ```bash
+   curl http://localhost:8000/healthz
+   ```
+
+**HTTPS and public access.** The compose stack serves plain HTTP on port 8000. MCP clients and
+OAuth require HTTPS, so for anything beyond local use put the app behind a reverse proxy
+(Caddy, nginx, Traefik) that terminates TLS, and set `PUBLIC_BASE_URL` in `.env` to the public
+HTTPS URL (e.g. `https://mem0.your-domain.com`). For Phase 2 OAuth, also set `OAUTH_SIGNING_KEY`
+(see [Phases](#phases)).
+
+**Backups.** The nightly S3 backup app is part of the CapRover setup. With Docker Compose you can
+take Qdrant snapshots yourself against the bundled instance — see
+[Backups and restore](#backups-and-restore) for the snapshot/restore API; the `qdrant_data` volume
+also holds the on-disk data.
+
+**Updating.** Pull the latest code and rebuild:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
 ## Deploying to CapRover
 
+This method connects to an **existing, external** Qdrant (it does not start one for you).
 Deployment is **push-to-`main` → CapRover webhook**. Merging to `main` triggers a rebuild and
 redeploy automatically, independent of CI status.
 
@@ -225,6 +300,85 @@ a typo can't accidentally allow a lookalike host such as `chatgpt.com.evil.com`.
 Send the bearer token as an `Authorization` header. See the [REST API reference](#rest-api-reference)
 below.
 
+## Prompting agents to use memory
+
+Connecting a client only makes the memory tools *available* — it does not make the agent *use*
+them. Models won't reliably search or save memory on their own; you have to tell them to. The most
+durable way is to put a short instruction block in whatever file the agent reads at the start of
+every session (`CLAUDE.md`, ChatGPT custom instructions, `AGENTS.md`, a system prompt, etc.).
+
+A good memory instruction covers four behaviors:
+
+1. **Recall first** — search memory at the start of a task, before answering, so past context is used.
+2. **Save durable facts** — persist preferences, decisions, project conventions, and recurring
+   context as they come up (not transient chatter).
+3. **Update, don't duplicate** — when something changes, update the existing memory instead of
+   adding a near-duplicate.
+4. **Don't store secrets** — never save passwords, API keys, or sensitive personal data.
+
+The server exposes six tools: `search_memories`, `add_memory`, `list_memories`, `get_memory`,
+`update_memory`, `delete_memory`. Adjust the tool/connector names below to match how your client
+surfaces them (for example, Claude Code namespaces them like `mcp__mem0-remote__search_memories`).
+
+### Claude (CLAUDE.md)
+
+For **Claude Code**, add this to the project's `CLAUDE.md` (or your user-level
+`~/.claude/CLAUDE.md` to apply it everywhere). For **Claude Desktop**, paste the same text into a
+Project's custom instructions.
+
+```markdown
+## Long-term memory (mem0)
+
+You have a persistent memory store available through the mem0 MCP server. Use it in every session:
+
+- **At the start of a task**, call `search_memories` with a query about the topic to recall any
+  relevant preferences, decisions, or context before you respond.
+- **When the user shares** a durable preference, decision, project convention, or fact they'll
+  likely want recalled later, call `add_memory` to save it. Keep each memory a single clear fact.
+- **When something changes**, find the existing memory (`search_memories` / `list_memories`) and
+  `update_memory` it instead of adding a duplicate.
+- Do **not** store secrets, credentials, or sensitive personal data.
+- You don't need to announce routine memory operations; just use them naturally.
+```
+
+### ChatGPT (custom instructions)
+
+In ChatGPT, open **Settings → Personalization → Custom instructions** (or a Project's
+instructions) and add the following to the "How would you like ChatGPT to respond?" box. This
+assumes you've connected the mem0 connector in Developer Mode (see
+[ChatGPT (OAuth, Developer Mode)](#chatgpt-oauth-developer-mode)).
+
+```text
+I have a personal long-term memory store connected via the mem0 MCP connector. Use it every session:
+- Before answering a substantive question, use the connector's search_memories tool to recall any
+  relevant saved preferences, decisions, or context.
+- When I share a durable preference, decision, or fact worth remembering, use add_memory to save it
+  as a single clear statement.
+- If something changes, update the existing memory rather than creating a duplicate.
+- Never store passwords, API keys, or sensitive personal data.
+```
+
+### Other agents (AGENTS.md and similar)
+
+Many coding agents and frameworks read an `AGENTS.md` (or an equivalent system-prompt/rules file)
+at session start. Drop in a tool-agnostic version:
+
+```markdown
+## Memory
+
+A shared long-term memory store is available via the mem0 MCP server. Behavior:
+
+1. Recall: at the start of a task, search memory for context relevant to the request before acting.
+2. Persist: save durable facts, preferences, decisions, and conventions as they arise.
+3. Reconcile: update an existing memory when it changes; avoid near-duplicates.
+4. Safety: never store secrets, credentials, or sensitive personal data.
+
+Tools: search_memories, add_memory, list_memories, get_memory, update_memory, delete_memory.
+```
+
+If your agent has no instruction file but does take a system prompt, the same four numbered rules
+work verbatim there.
+
 ## REST API reference
 
 All endpoints live under `/api/v1` and require `Authorization: Bearer <MEM0_API_KEY>`. Request and
@@ -238,7 +392,7 @@ Provide **either** `content` (a string) **or** `messages` (a chat transcript). O
 ```bash
 curl -X POST https://mem0.your-domain.com/api/v1/memories \
   -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
-  -d '{"content": "Ian hosts services on CapRover on DigitalOcean", "agent_id": "n8n-flow"}'
+  -d '{"content": "We host services on CapRover on DigitalOcean", "agent_id": "n8n-flow"}'
 ```
 
 With a transcript instead of a plain string:
@@ -256,7 +410,7 @@ Semantic search. Optional `agent_id`, `run_id`, `user_id`, and `limit` (1–100,
 ```bash
 curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
   -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
-  -d '{"query": "where does Ian host things?"}'
+  -d '{"query": "where do we host things?"}'
 ```
 
 ### List memories — `GET /api/v1/memories`
@@ -299,11 +453,11 @@ aws s3 cp s3://<bucket>/mem0-backups/2026-05-20T03-00-00Z.snapshot ./
 # 2. Upload it to Qdrant
 curl -X POST -H "api-key: $QDRANT_API_KEY" \
   -F "snapshot=@2026-05-20T03-00-00Z.snapshot" \
-  "https://qdrant.your-domain.com/collections/ian_memories/snapshots/upload"
+  "https://qdrant.your-domain.com/collections/memories/snapshots/upload"
 
 # 3. Verify the collection is back
 curl -H "api-key: $QDRANT_API_KEY" \
-  "https://qdrant.your-domain.com/collections/ian_memories"
+  "https://qdrant.your-domain.com/collections/memories"
 ```
 
 Run a restore drill periodically so you know the snapshots are usable before you need them.

@@ -22,7 +22,7 @@ def test_add_memory(app_instance, mem, auth_header):
     mem.add.assert_called_once()
     args, kwargs = mem.add.call_args
     assert args[0] == "hi"
-    assert kwargs["user_id"] == "ian"
+    assert kwargs["user_id"] == "default-user"
 
 
 def test_add_memory_requires_content_or_messages(app_instance, mem, auth_header):
@@ -40,7 +40,7 @@ def test_search(app_instance, mem, auth_header):
     assert resp.status_code == 200
     _, kwargs = mem.search.call_args
     assert kwargs["top_k"] == 5
-    assert kwargs["filters"]["user_id"] == "ian"
+    assert kwargs["filters"]["user_id"] == "default-user"
 
 
 def test_list(app_instance, mem, auth_header):
@@ -50,7 +50,7 @@ def test_list(app_instance, mem, auth_header):
     assert resp.status_code == 200
     _, kwargs = mem.get_all.call_args
     assert kwargs["filters"]["agent_id"] == "n8n"
-    assert kwargs["filters"]["user_id"] == "ian"
+    assert kwargs["filters"]["user_id"] == "default-user"
     assert kwargs["top_k"] == 50  # default list limit must reach mem0 as top_k
 
 

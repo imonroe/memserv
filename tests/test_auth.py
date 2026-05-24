@@ -45,7 +45,7 @@ def _make_jwt(priv_pem, *, aud="mem0-server", iss=ISSUER, exp_delta=3600, **extr
     now = int(time.time())
     claims = {
         "iss": iss,
-        "sub": "ian",
+        "sub": "default-user",
         "aud": aud,
         "scope": "read write",
         "client_id": "claude-web",
@@ -89,7 +89,7 @@ async def test_composite_accepts_static_token():
     v = CompositeVerifier(static_token="abc")
     token = await v.verify_token("abc")
     assert token is not None
-    assert token.client_id == "ian"
+    assert token.client_id == "default-user"
     assert "write" in token.scopes
 
 

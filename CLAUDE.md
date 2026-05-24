@@ -67,6 +67,7 @@ Dependencies are pinned in `requirements.txt` (per PRD Appendix B); CI is in `.g
 
 ## Deployment notes
 
-- Deploy is **push-to-`main` → CapRover webhook**, independent of CI status. The main app is stateless (Phase 1); only Phase 2 OAuth uses the `/app/data` persistent volume.
+- Two supported deploy paths, same app image: **CapRover** (connects to an external Qdrant) and **Docker Compose** (`docker-compose.yml`, bundles Qdrant + app for non-CapRover hosts). The compose file overrides `QDRANT_HOST`/`QDRANT_PORT`/`QDRANT_HTTPS` to point at the in-stack `qdrant` service — keep that override if you edit it. Document changes to either path in `docs/USER_GUIDE.md`.
+- Deploy (CapRover) is **push-to-`main` → CapRover webhook**, independent of CI status. The main app is stateless (Phase 1); only Phase 2 OAuth uses the `/app/data` persistent volume.
 - `/healthz` does a real 2s-timeout round-trip to Qdrant and returns 503 if unreachable — keep the timeout so CapRover health checks don't hang.
 - The `mem0-backup` app lives in this same repo as a second CapRover app (separate `captain-definition` / relative path). It snapshots Qdrant, uploads to S3, prunes by retention.

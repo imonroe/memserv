@@ -3,7 +3,7 @@
 A self-hosted [mem0](https://github.com/mem0ai/mem0) memory server that exposes one shared
 memory store over **two protocols from a single process**:
 
-- **REST** (`/api/v1/memories…`) for scripts, n8n, curl, and the Hermes Agent.
+- **REST** (`/api/v1/memories…`) for scripts, n8n, curl, and custom agents.
 - **Streamable HTTP MCP** (`/mcp/`) for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
 
 It uses an existing external **Qdrant** instance as the vector backend, deploys to **CapRover**
@@ -20,7 +20,7 @@ The sections below are a quick reference; the guides above go deeper.
 ## Architecture
 
 ```
-Clients (Claude Code / Desktop / Hermes / curl)  ──Bearer──┐
+Clients (Claude Code / Desktop / agents / curl)  ──Bearer──┐
 Anthropic cloud (Claude.ai / Cowork)  ──OAuth 2.1 + PKCE──┐ │
                                                           ▼ ▼
                               CapRover app: mem0-server (this repo)

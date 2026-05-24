@@ -2,9 +2,9 @@
 
 **Project name:** `mem0-server`
 **Owner:** project maintainer
-**Status:** Ready for implementation
-**Target deployment:** CapRover on Digital Ocean (existing droplet)
-**Existing infrastructure:** Qdrant already deployed on CapRover at `qdrant.<domain>` with API key auth and HTTPS.
+**Status:** Implemented (Phase 1 + Phase 2)
+**Target deployment:** CapRover, or Docker Compose on any Docker host
+**Vector backend:** An external Qdrant instance (API key auth + HTTPS), or the Qdrant bundled in the Docker Compose stack.
 
 ---
 
@@ -15,9 +15,9 @@ Build and deploy a single self-hosted Python service that exposes a shared mem0 
 ### 1.1 Goals
 
 1. **One memory pool, many agents.** All AI clients write to and read from the same Qdrant collection, scoped by a shared `user_id` and tagged by `agent_id`.
-2. **One server, two protocols.** REST for scripts, n8n, Hermes Agent, and ad-hoc curl. Streamable HTTP MCP for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
+2. **One server, two protocols.** REST for scripts, n8n, custom agents, and ad-hoc curl. Streamable HTTP MCP for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
 3. **Push-to-deploy.** Merges to `main` trigger CapRover to pull, build, and redeploy without manual intervention.
-4. **Operational durability.** Nightly Qdrant snapshots are uploaded to S3. Droplet loss does not equal memory loss.
+4. **Operational durability.** Nightly Qdrant snapshots are uploaded to S3. Host loss does not equal memory loss.
 5. **Multi-client, multi-machine.** The server is the single source of truth; clients on any of your machines connect to it over HTTPS.
 
 ### 1.2 Non-goals
@@ -33,7 +33,7 @@ Build and deploy a single self-hosted Python service that exposes a shared mem0 
 |---|---|---|---|
 | Claude Code (CLI) | Streamable HTTP MCP | Bearer token (header) | 1 |
 | Claude Desktop | Streamable HTTP MCP | Bearer token (header, via Advanced Settings) | 1 |
-| Hermes Agent | REST or MCP | Bearer token | 1 |
+| Custom agents / SDK clients | REST or MCP | Bearer token | 1 |
 | Direct REST (scripts, n8n, curl) | REST | Bearer token | 1 |
 | Claude.ai (web) | Streamable HTTP MCP | OAuth 2.1 + PKCE + DCR | 2 |
 | Cowork | Streamable HTTP MCP | OAuth 2.1 + PKCE + DCR | 2 |
@@ -48,7 +48,7 @@ Build and deploy a single self-hosted Python service that exposes a shared mem0 
 ┌────────────────────────────────────────────────────────────────────┐
 │                        Client machines                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
-│  │ Claude Code │  │Claude Desktop│  │Hermes Agent │  │curl / n8n  │ │
+│  │ Claude Code │  │Claude Desktop│  │Custom agent │  │curl / n8n  │ │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
 └─────────┼────────────────┼────────────────┼───────────────┼────────┘
           │  Bearer        │  Bearer        │  Bearer       │  Bearer
@@ -154,20 +154,22 @@ mem0-server/
 ## 4. Tech stack & dependencies
 
 - **Python 3.12**
-- **FastAPI** ≥ 0.115 — HTTP framework
-- **FastMCP** ≥ 2.12 — MCP server framework. *Note: this is the PrefectHQ/fastmcp package on PyPI, not the older `mcp.server.fastmcp` module. Import as `from fastmcp import FastMCP`.*
-- **uvicorn[standard]** ≥ 0.30 — ASGI server
-- **mem0ai** ≥ 0.1.100 — memory layer
-- **qdrant-client** ≥ 1.13 — pulled in by mem0ai but pin explicitly
-- **openai** ≥ 1.50 — embeddings provider client (used by mem0)
-- **anthropic** ≥ 0.39 — LLM provider client (used by mem0 for fact extraction)
-- **pydantic** ≥ 2.7 & **pydantic-settings** ≥ 2.4 — config
-- **structlog** ≥ 24 — structured logging
-- **httpx** ≥ 0.27 — used in tests and OAuth endpoints
-- **PyJWT[crypto]** ≥ 2.9 — Phase 2 OAuth token signing
+- **FastAPI** — HTTP framework
+- **FastMCP** (v3) — MCP server framework. *Note: this is the PrefectHQ/fastmcp package on PyPI, not the older `mcp.server.fastmcp` module. Import as `from fastmcp import FastMCP`.*
+- **mcp** — the MCP SDK (provides `AccessToken` and related types used by the auth verifier)
+- **uvicorn[standard]** — ASGI server
+- **mem0ai** (v2) — memory layer
+- **qdrant-client** — pulled in by mem0ai but pin explicitly
+- **openai** — embeddings provider client (used by mem0)
+- **anthropic** — LLM provider client (used by mem0 for fact extraction)
+- **pydantic** & **pydantic-settings** — config
+- **structlog** — structured logging
+- **prometheus-client** — `/metrics` exposition
+- **httpx** — used in tests and the Qdrant health check
+- **PyJWT[crypto]** — Phase 2 OAuth token signing
 - **pytest**, **pytest-asyncio**, **respx**, **ruff** — dev tools
 
-Pin via `requirements.txt` with `==` for runtime, and use `pyproject.toml` for dev tools and project metadata.
+Runtime dependencies are pinned with `==` in `requirements.txt` (see Appendix B for the exact versions); dev tools and project metadata live in `pyproject.toml`.
 
 ---
 
@@ -923,13 +925,13 @@ Verify with `claude mcp list`. The server should show as connected with 6 tools.
 
 Same as Claude.ai web — go to Connectors, add the custom URL, complete OAuth.
 
-### 14.5 Hermes Agent
+### 14.5 Custom agents / SDK clients
 
 Two options:
 
-**a) REST**: configure Hermes with base URL `https://mem0.your-domain.com/api/v1` and bearer header.
+**a) REST**: configure the agent with base URL `https://mem0.your-domain.com/api/v1` and a bearer header.
 
-**b) MCP**: configure Hermes' MCP client (Hermes Agent supports Streamable HTTP MCP servers) with the same URL + headers as Claude Code in §14.1.
+**b) MCP**: if the agent's framework supports Streamable HTTP MCP servers, point its MCP client at the same URL + headers as Claude Code in §14.1.
 
 ### 14.6 Direct REST (curl / scripts / n8n)
 
@@ -1118,21 +1120,23 @@ LOG_LEVEL=INFO
 ## Appendix B: `requirements.txt`
 
 ```
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-fastmcp==2.12.5
-mem0ai==0.1.100
-qdrant-client==1.13.0
-openai==1.50.0
-anthropic==0.39.0
-pydantic==2.7.4
-pydantic-settings==2.4.0
-structlog==24.4.0
-httpx==0.27.2
-PyJWT[crypto]==2.9.0
+fastapi==0.136.1
+uvicorn[standard]==0.47.0
+fastmcp==3.3.1
+mcp==1.27.1
+mem0ai==2.0.2
+qdrant-client==1.18.0
+openai==2.38.0
+anthropic==0.104.1
+pydantic==2.13.4
+pydantic-settings==2.14.1
+structlog==25.5.0
+prometheus-client==0.25.0
+httpx==0.28.1
+PyJWT[crypto]==2.13.0
 ```
 
-(Adjust to the latest patch versions at implementation time; the constraints above are the minimum tested.)
+(This mirrors the repository's `requirements.txt`, which is the authoritative pin list.)
 
 ## Appendix C: Useful CapRover CLI snippets
 

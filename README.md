@@ -6,8 +6,9 @@ memory store over **two protocols from a single process**:
 - **REST** (`/api/v1/memories…`) for scripts, n8n, curl, and custom agents.
 - **Streamable HTTP MCP** (`/mcp/`) for Claude Code, Claude Desktop, Claude.ai web, and Cowork.
 
-It uses an existing external **Qdrant** instance as the vector backend, deploys to **CapRover**
-on push to `main`, and ships a companion `mem0-backup` app that snapshots Qdrant to S3 nightly.
+It uses **Qdrant** as the vector backend and runs two ways: a **Docker Compose** stack that bundles
+Qdrant and the app together, or on **CapRover** (auto-deploys on push to `main`) against an existing
+external Qdrant, with a companion `mem0-backup` app that snapshots Qdrant to S3 nightly.
 This is a **single-user** system: `MEM0_DEFAULT_USER_ID` is the only user.
 
 **Documentation:**

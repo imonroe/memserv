@@ -1,4 +1,4 @@
-# Self-contained mem0-server stack: Qdrant + the app in one process group.
+# Self-contained mem0-server stack: Qdrant + the app in one Docker Compose project (two containers).
 # For users who don't run CapRover. See docs/USER_GUIDE.md → "Deploying with Docker Compose".
 #
 #   cp .env.example .env   # then fill in the API keys
@@ -8,7 +8,9 @@
 
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    # Pinned for reproducible builds; aligned with the qdrant-client version in
+    # requirements.txt. Bump both together when upgrading Qdrant.
+    image: qdrant/qdrant:v1.18.0
     restart: unless-stopped
     environment:
       # Qdrant enforces this key when set; the app sends it via QDRANT_API_KEY.

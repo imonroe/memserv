@@ -18,7 +18,9 @@ def _parse_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
     text = value.strip()
-    # Accept a trailing 'Z' (UTC) which datetime.fromisoformat rejects pre-3.11.
+    # Normalize a trailing 'Z' (Zulu/UTC) to an explicit +00:00 offset. Python
+    # 3.11+ fromisoformat already accepts 'Z'; doing it here makes the UTC intent
+    # explicit and keeps parsing correct for any input form we hand it.
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:

@@ -379,6 +379,14 @@ Tools: search_memories, add_memory, list_memories, get_memory, update_memory, de
 If your agent has no instruction file but does take a system prompt, the same four numbered rules
 work verbatim there.
 
+### Companion prompt packs
+
+Beyond the baseline rules above, [`docs/prompts/`](./prompts/README.md) collects reusable,
+copy-paste prompt packs for specific recurring tasks — [auto-capturing a session
+summary](./prompts/auto-capture.md), [research synthesis](./prompts/research-synthesis.md), and
+[meeting synthesis](./prompts/meeting-synthesis.md). They're documentation only (no server changes)
+and drive the same six tools.
+
 ## REST API reference
 
 All endpoints live under `/api/v1` and require `Authorization: Bearer <MEM0_API_KEY>`. Request and
@@ -412,6 +420,22 @@ curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
   -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
   -d '{"query": "where do we host things?"}'
 ```
+
+**Recency boost (optional).** By default results are ordered purely by semantic
+similarity. When you care more about what's *latest* than what's the closest
+topical match, add `recency_weight` (0.0–1.0): `0` keeps the default order, `1`
+orders almost entirely by how recently each memory was created or updated. The
+half-life of the decay (default 30 days) is tunable via `recency_half_life_days`.
+
+```bash
+curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
+  -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
+  -d '{"query": "current deploy target", "recency_weight": 0.4}'
+```
+
+When `recency_weight > 0`, each returned result carries a `rerank_score` showing
+the blended similarity-plus-recency value it was sorted by. The MCP
+`search_memories` tool accepts the same `recency_weight` argument.
 
 ### List memories — `GET /api/v1/memories`
 

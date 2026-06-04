@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app import memory as memory_mod
 from app.auth import require_bearer
 from app.config import get_settings
+from app.ranking import rerank_by_recency
 
 router = APIRouter(dependencies=[Depends(require_bearer)])
 
@@ -31,6 +32,10 @@ class SearchRequest(BaseModel):
     agent_id: str | None = None
     run_id: str | None = None
     limit: int = Field(default=10, ge=1, le=100)
+    # Opt-in recency boost. 0 = pure semantic similarity (unchanged behavior),
+    # 1 = order almost entirely by how recently a memory was created/updated.
+    recency_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    recency_half_life_days: float = Field(default=30.0, gt=0.0)
 
 
 class UpdateMemoryRequest(BaseModel):
@@ -65,7 +70,8 @@ def add_memory(req: AddMemoryRequest) -> dict:
 def search_memories(req: SearchRequest) -> dict:
     memory = memory_mod.get_memory()
     filters = _scope_kwargs(req.user_id, req.agent_id, req.run_id)
-    return memory.search(query=req.query, filters=filters, top_k=req.limit)
+    results = memory.search(query=req.query, filters=filters, top_k=req.limit)
+    return rerank_by_recency(results, req.recency_weight, req.recency_half_life_days)
 
 
 @router.get("/memories")

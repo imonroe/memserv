@@ -10,7 +10,8 @@ Everything is configured via environment variables:
   MEM0_URL                (required) base URL of the memory server
   MEM0_API_KEY            (required) bearer token
   DIGEST_WINDOW_DAYS      look-back window in days (default 1)
-  DIGEST_MAX_MEMORIES     cap on memories fetched/considered (default 200)
+  DIGEST_MAX_MEMORIES     cap on memories fetched/considered (default 100; the
+                          server's /api/v1/memories caps limit at 100)
   DIGEST_WEBHOOK_URL      Slack or Discord incoming webhook; if unset, prints
   DIGEST_WEBHOOK_FORMAT   "slack" or "discord" (auto-detected from the URL)
   DIGEST_TITLE            heading for the message (default "🧠 Memory digest")
@@ -35,6 +36,25 @@ def _env(name: str, default: str | None = None, *, required: bool = False) -> st
     if required and (val is None or str(val).strip() == ""):
         sys.exit(f"error: {name} is required")
     return val
+
+
+def _int_env(
+    name: str, default: int, *, minimum: int | None = None, maximum: int | None = None
+) -> int:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError:
+            print(f"warning: {name}={raw!r} is not an integer; using {default}", file=sys.stderr)
+            value = default
+    if minimum is not None:
+        value = max(value, minimum)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
 
 
 def parse_timestamp(value: object) -> datetime | None:
@@ -201,7 +221,8 @@ def main() -> int:
     base_url = _env("MEM0_URL", required=True)
     api_key = _env("MEM0_API_KEY", required=True)
     window_days = float(_env("DIGEST_WINDOW_DAYS", "1"))
-    max_memories = int(_env("DIGEST_MAX_MEMORIES", "200"))
+    # The REST list endpoint caps limit at 100, so clamp to avoid a 422.
+    max_memories = _int_env("DIGEST_MAX_MEMORIES", 100, minimum=1, maximum=100)
     webhook_url = _env("DIGEST_WEBHOOK_URL")
     fmt = detect_format(webhook_url, _env("DIGEST_WEBHOOK_FORMAT"))
     title = _env("DIGEST_TITLE", "🧠 Memory digest")

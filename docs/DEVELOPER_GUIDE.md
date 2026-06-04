@@ -83,11 +83,12 @@ backup/
   captain-definition  CapRover build descriptor for the separate backup app.
 
 digest/             Optional companion app (separate, port-less CapRover app): a cron container
-  digest.py         that summarizes recent memories and posts them to a Slack/Discord webhook.
-  entrypoint.sh     digest.py holds pure, unit-tested helpers (filter_recent, build_digest, …);
-  Dockerfile        entrypoint.sh generates the crontab from $DIGEST_CRON and starts crond.
-  requirements.txt  Python 3.12-alpine + httpx. Not part of the main app image.
-  captain-definition
+                    that summarizes recent memories and posts them to a Slack/Discord webhook.
+  digest.py         Pure, unit-tested helpers (filter_recent, build_digest, …) plus main().
+  entrypoint.sh     Snapshots env to a quoted file, builds the crontab from $DIGEST_CRON, runs crond.
+  Dockerfile        Python 3.12-alpine + dcron. Not part of the main app image.
+  requirements.txt  httpx only.
+  captain-definition  CapRover build descriptor for the digest app.
 
 tests/              pytest suite, one file per module.
 scripts/            smoke.sh (REST) and smoke_mcp.py (MCP) against a live server; import_*.py

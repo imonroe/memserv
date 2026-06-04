@@ -76,6 +76,30 @@ def test_format_payload_slack_vs_discord():
     assert d.format_payload("hi", "discord") == {"content": "hi"}
 
 
+def test_int_env_default_clamp_and_bad_value(monkeypatch):
+    monkeypatch.delenv("X_N", raising=False)
+    assert d._int_env("X_N", 100, minimum=1, maximum=100) == 100  # unset -> default
+    monkeypatch.setenv("X_N", "250")
+    assert d._int_env("X_N", 100, minimum=1, maximum=100) == 100  # clamped to max
+    monkeypatch.setenv("X_N", "0")
+    assert d._int_env("X_N", 100, minimum=1, maximum=100) == 1  # clamped to min
+    monkeypatch.setenv("X_N", "nope")
+    assert d._int_env("X_N", 100, minimum=1, maximum=100) == 100  # unparseable -> default
+
+
+@respx.mock
+def test_main_requests_at_most_100(monkeypatch):
+    # DIGEST_MAX_MEMORIES above the server cap must be clamped, or the list
+    # endpoint (limit <= 100) would 422.
+    _set_main_env(monkeypatch, DIGEST_MAX_MEMORIES="500")
+    route = respx.get("https://mem0.test/api/v1/memories").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    respx.post("https://hooks.slack.com/x").mock(return_value=httpx.Response(200))
+    d.main()
+    assert route.calls.last.request.url.params["limit"] == "100"
+
+
 # --- network helpers (respx) -------------------------------------------------
 
 

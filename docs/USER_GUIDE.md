@@ -257,7 +257,7 @@ it's a **separate**, port-less CapRover app built from the `digest/` directory, 
 | `DIGEST_WINDOW_DAYS` | no | `1` | Look-back window. Match it to the schedule (e.g. `7` for a weekly digest). |
 | `ANTHROPIC_API_KEY` | no | — | If set, the digest is summarized by Claude; otherwise it's a plain bulleted list. |
 | `MEM0_LLM_MODEL` | no | `claude-haiku-4-5-20251001` | Model used for summarization. |
-| `DIGEST_MAX_MEMORIES` | no | `200` | Cap on memories fetched per run. |
+| `DIGEST_MAX_MEMORIES` | no | `100` | Cap on memories fetched per run. The server's list endpoint allows at most 100, so larger values are clamped to 100. |
 | `DIGEST_TITLE` | no | `🧠 Memory digest` | Heading on the posted message. |
 | `DIGEST_SEND_WHEN_EMPTY` | no | `false` | `true` to post even when nothing new was found. |
 | `DIGEST_RUN_ON_START` | no | `false` | `true` to run once immediately on container start — handy to verify config. |

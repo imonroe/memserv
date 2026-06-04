@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from importers import chatgpt, obsidian, readwise
+from importers import chatgpt, cli, obsidian, readwise
 from importers.client import MemoryClient
 
 # --- ChatGPT -----------------------------------------------------------------
@@ -179,3 +179,40 @@ def test_client_retries_5xx_then_succeeds():
     assert out == {"ok": True}
     assert route.call_count == 2
     assert slept == [2.0]  # backed off once before the retry
+
+
+def test_client_rejects_invalid_max_retries():
+    # max_retries < 1 would run zero attempts; fail loudly at construction.
+    with pytest.raises(ValueError):
+        MemoryClient("https://mem0.test", "k", max_retries=0)
+
+
+# --- cli.run exit codes ------------------------------------------------------
+
+
+class _StubClient:
+    """Minimal stand-in for MemoryClient: add() fails for given record indices."""
+
+    dry_run = False
+
+    def __init__(self, fail_indices):
+        self.fail_indices = set(fail_indices)
+        self.calls = 0
+
+    def add(self, **_kwargs):
+        i = self.calls
+        self.calls += 1
+        if i in self.fail_indices:
+            raise RuntimeError("boom")
+        return {"ok": True}
+
+
+def test_run_returns_zero_when_all_succeed():
+    records = [{"content": "a"}, {"content": "b"}]
+    assert cli.run(records, _StubClient([]), limit=None, label="rec") == 0
+
+
+def test_run_returns_nonzero_on_partial_failure():
+    # One success + one failure must still be a non-zero exit for automation.
+    records = [{"content": "a"}, {"content": "b"}]
+    assert cli.run(records, _StubClient([1]), limit=None, label="rec") == 1

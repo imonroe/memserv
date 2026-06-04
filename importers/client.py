@@ -29,6 +29,8 @@ class MemoryClient:
         backoff_base: float = 2.0,
         sleep=time.sleep,
     ):
+        if max_retries < 1:
+            raise ValueError("max_retries must be at least 1")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.dry_run = dry_run

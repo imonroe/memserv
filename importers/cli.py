@@ -67,4 +67,5 @@ def run(records: Iterable[dict], client: MemoryClient, *, limit: int | None, lab
             print(f"  ... {i + 1} {label} processed")
     verb = "would send" if client.dry_run else "sent"
     print(f"Done: {sent} {verb}, {failed} failed.")
-    return 1 if failed and not sent else 0
+    # Any failure is a non-zero exit so automation can detect partial failures.
+    return 1 if failed else 0

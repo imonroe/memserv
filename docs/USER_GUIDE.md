@@ -379,6 +379,14 @@ Tools: search_memories, add_memory, list_memories, get_memory, update_memory, de
 If your agent has no instruction file but does take a system prompt, the same four numbered rules
 work verbatim there.
 
+### Companion prompt packs
+
+Beyond the baseline rules above, [`docs/prompts/`](./prompts/README.md) collects reusable,
+copy-paste prompt packs for specific recurring tasks — [auto-capturing a session
+summary](./prompts/auto-capture.md), [research synthesis](./prompts/research-synthesis.md), and
+[meeting synthesis](./prompts/meeting-synthesis.md). They're documentation only (no server changes)
+and drive the same six tools.
+
 ## REST API reference
 
 All endpoints live under `/api/v1` and require `Authorization: Bearer <MEM0_API_KEY>`. Request and

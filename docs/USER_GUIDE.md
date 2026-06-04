@@ -13,6 +13,7 @@ connect clients to it, and use it day to day. If you want to work on the code it
 - [Deploying to CapRover](#deploying-to-caprover)
   - [1. Deploy the main app](#1-deploy-the-main-app-mem0-server)
   - [2. Deploy the backup app](#2-deploy-the-backup-app-mem0-backup)
+  - [3. Deploy the digest app (optional)](#3-deploy-the-digest-app-optional-mem0-digest)
 - [Connecting clients](#connecting-clients)
   - [Claude Code](#claude-code)
   - [Claude Desktop](#claude-desktop)
@@ -234,6 +235,50 @@ this same repository.
 The backup container runs `crond` and executes `backup/backup.sh` nightly at 03:00 UTC. Each run
 creates a Qdrant snapshot, downloads it, uploads it to S3, deletes the Qdrant-side snapshot, keeps
 the 3 most recent local files, and prunes S3 objects older than `RETENTION_DAYS`.
+
+### 3. Deploy the digest app (optional, `mem0-digest`)
+
+The optional **digest** app posts a periodic summary of recently added memories to a Slack or
+Discord channel — a lightweight way to resurface what you've been capturing. Like the backup app
+it's a **separate**, port-less CapRover app built from the `digest/` directory, running `crond`.
+
+1. Create a CapRover app named `mem0-digest`. It needs **no exposed ports**.
+2. Set its **Captain Definition Relative Path** to `./digest/captain-definition`.
+3. Point its deployment at this repo / `main` (same webhook pattern, or deploy manually).
+4. Set its env vars:
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `MEM0_URL` | yes | — | Base URL of the memory server, e.g. `https://mem0.your-domain.com`. |
+| `MEM0_API_KEY` | yes | — | The same bearer token the server uses. |
+| `DIGEST_WEBHOOK_URL` | recommended | — | Slack or Discord **incoming webhook** URL. If unset, the digest is written to the container log instead of being sent. |
+| `DIGEST_WEBHOOK_FORMAT` | no | auto | `slack` or `discord`; auto-detected from the URL. Set explicitly if detection is wrong. |
+| `DIGEST_CRON` | no | `0 8 * * *` | Cron schedule in UTC. Default is daily at 08:00; use e.g. `0 8 * * 1` for Mondays only. |
+| `DIGEST_WINDOW_DAYS` | no | `1` | Look-back window. Match it to the schedule (e.g. `7` for a weekly digest). |
+| `ANTHROPIC_API_KEY` | no | — | If set, the digest is summarized by Claude; otherwise it's a plain bulleted list. |
+| `MEM0_LLM_MODEL` | no | `claude-haiku-4-5-20251001` | Model used for summarization. |
+| `DIGEST_MAX_MEMORIES` | no | `200` | Cap on memories fetched per run. |
+| `DIGEST_TITLE` | no | `🧠 Memory digest` | Heading on the posted message. |
+| `DIGEST_SEND_WHEN_EMPTY` | no | `false` | `true` to post even when nothing new was found. |
+| `DIGEST_RUN_ON_START` | no | `false` | `true` to run once immediately on container start — handy to verify config. |
+
+Each run fetches recent memories over the REST API, optionally summarizes them with Claude, and
+posts the result to your webhook. To verify right after deploy, set `DIGEST_RUN_ON_START=true` and
+check `caprover logs mem0-digest`.
+
+> **Cost note:** with `ANTHROPIC_API_KEY` set, each run makes **one** Claude call to summarize.
+> Without it, no LLM is used and you get a plain bulleted list.
+
+Non-CapRover hosts can run the same image directly:
+
+```bash
+docker build -t mem0-digest ./digest
+docker run -d --name mem0-digest \
+  -e MEM0_URL=https://mem0.your-domain.com -e MEM0_API_KEY=... \
+  -e DIGEST_WEBHOOK_URL=https://hooks.slack.com/services/... \
+  -e DIGEST_CRON="0 8 * * *" -e DIGEST_WINDOW_DAYS=1 \
+  mem0-digest
+```
 
 ## Connecting clients
 
@@ -556,3 +601,4 @@ status, and latency. The `Authorization` header is never logged.
 | "Couldn't reach the MCP server" on Claude.ai web / Cowork (but Claude Code/Desktop work) | OAuth discovery failure. Confirm `OAUTH_SIGNING_KEY` is set and `PUBLIC_BASE_URL` exactly matches the public HTTPS URL; the server must advertise the protected-resource metadata in the `/mcp/` 401 `WWW-Authenticate` header. |
 | Connector fails right after consent; logs show `POST /oauth/register → 400` | The client's callback isn't in `OAUTH_ALLOWED_REDIRECT_URIS`. The server logs a `dcr_redirect_uri_rejected` warning with the exact `requested` URI and the active `allowed` list — add the requested URI to `OAUTH_ALLOWED_REDIRECT_URIS` and redeploy. Claude.ai web/desktop/mobile/Cowork use `https://claude.ai/api/mcp/auth_callback`. |
 | Backup job not running | Check the backup container: `caprover logs mem0-backup`. |
+| Digest not arriving | Check `caprover logs mem0-digest`. Common causes: `DIGEST_WEBHOOK_URL` unset (digest is only logged), nothing within `DIGEST_WINDOW_DAYS`, or a wrong webhook URL. Set `DIGEST_RUN_ON_START=true` to trigger a run immediately. |

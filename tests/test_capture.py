@@ -1,6 +1,7 @@
 import json
 
 import httpx
+import pytest
 import respx
 
 from capture import capture as c
@@ -77,6 +78,30 @@ def test_get_updates_returns_result_list():
 
 
 @respx.mock
+def test_get_updates_raises_on_not_ok():
+    # Telegram returns HTTP 200 with ok:false on errors (e.g. bad token); the
+    # bot must treat that as an error, not silently idle.
+    respx.get(f"{TG}/botBOTTOKEN/getUpdates").mock(
+        return_value=_ok({"ok": False, "description": "Unauthorized"})
+    )
+    with httpx.Client() as client, pytest.raises(RuntimeError):
+        c.get_updates("BOTTOKEN", None, 30, client=client)
+
+
+def test_int_env_validates(monkeypatch):
+    monkeypatch.delenv("X_T", raising=False)
+    assert c._int_env("X_T", 30) == 30  # unset -> default
+    monkeypatch.setenv("X_T", "5")
+    assert c._int_env("X_T", 30) == 5
+    monkeypatch.setenv("X_T", "0")  # below minimum
+    with pytest.raises(SystemExit):
+        c._int_env("X_T", 30)
+    monkeypatch.setenv("X_T", "abc")  # unparseable
+    with pytest.raises(SystemExit):
+        c._int_env("X_T", 30)
+
+
+@respx.mock
 def test_post_memory_sends_bearer_and_provenance():
     route = respx.post(MEM).mock(return_value=_ok({"results": [{"id": "1"}]}))
     with httpx.Client() as client:
@@ -102,6 +127,17 @@ def test_process_update_saves_for_authorized_chat():
     assert mem.called
     assert json.loads(mem.calls.last.request.content)["content"] == "buy milk"
     assert b"Saved" in send.calls.last.request.content
+
+
+@respx.mock
+def test_process_update_save_failure_sends_generic_message():
+    respx.post(MEM).mock(return_value=httpx.Response(500))
+    send = respx.post(SEND).mock(return_value=_ok())
+    with httpx.Client() as client:
+        c.process_update(_update("note"), CFG, client=client)
+    body = send.calls.last.request.content
+    assert b"try again" in body
+    assert b"mem0.test" not in body  # no internal URL/detail leaked to the user
 
 
 @respx.mock

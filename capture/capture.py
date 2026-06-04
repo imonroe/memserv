@@ -47,6 +47,19 @@ def _env(name: str, default: str | None = None, *, required: bool = False) -> st
     return val
 
 
+def _int_env(name: str, default: int, *, minimum: int = 1) -> int:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        sys.exit(f"error: {name} must be an integer (got {raw!r})")
+    if value < minimum:
+        sys.exit(f"error: {name} must be >= {minimum} (got {value})")
+    return value
+
+
 def parse_allowed_chat_ids(raw: str | None) -> set[int]:
     ids: set[int] = set()
     for part in (raw or "").split(","):
@@ -98,7 +111,13 @@ def get_updates(token: str, offset: int | None, poll_timeout: int, *, client: ht
     )
     resp.raise_for_status()
     data = resp.json()
-    result = data.get("result") if isinstance(data, dict) else None
+    # Telegram signals errors as HTTP 200 with {"ok": false, ...}; surface those
+    # (and any non-dict body) as errors so the run loop logs and backs off rather
+    # than silently looking idle on, say, an invalid token.
+    if not isinstance(data, dict) or not data.get("ok"):
+        detail = data.get("description") if isinstance(data, dict) else data
+        raise RuntimeError(f"Telegram getUpdates failed: {detail!r}")
+    result = data.get("result")
     return result if isinstance(result, list) else []
 
 
@@ -160,8 +179,9 @@ def process_update(update: dict, cfg: Config, *, client: httpx.Client) -> None:
     try:
         post_memory(cfg.base_url, cfg.api_key, body, cfg.agent_id, client=client)
     except Exception as exc:  # noqa: BLE001 - report failure to the user, keep the bot alive
+        # Full detail to logs; a stable, non-revealing message to the user.
         print(f"error saving memory: {exc}", file=sys.stderr)
-        send_message(cfg.token, chat_id, f"⚠️ Failed to save: {exc}", client=client)
+        send_message(cfg.token, chat_id, "⚠️ Couldn't save that — please try again.", client=client)
         return
 
     send_message(cfg.token, chat_id, "Saved ✓", client=client)
@@ -179,7 +199,7 @@ def load_config() -> Config:
 
 def run() -> None:
     cfg = load_config()
-    poll_timeout = int(_env("TELEGRAM_POLL_TIMEOUT", "30"))
+    poll_timeout = _int_env("TELEGRAM_POLL_TIMEOUT", 30)
     if not cfg.allowed_ids:
         print(
             "warning: TELEGRAM_ALLOWED_CHAT_IDS is unset — running in discovery mode "

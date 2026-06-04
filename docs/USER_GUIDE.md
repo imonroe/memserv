@@ -441,6 +441,50 @@ Returns the change history for a memory.
 A ready-made smoke test against a live server is in [`scripts/smoke.sh`](../scripts/smoke.sh), and
 an MCP-level smoke test in [`scripts/smoke_mcp.py`](../scripts/smoke_mcp.py).
 
+## Importing existing data
+
+A new memory store starts empty. To seed it from data you already have, the repo
+ships standalone importer scripts under [`scripts/`](../scripts) that read common
+export formats and POST them to the REST API. They're plain REST clients — run
+them from a checkout against any reachable server.
+
+| Source | Script | What it sends |
+|---|---|---|
+| ChatGPT export (`conversations.json`) | `scripts/import_chatgpt.py` | One `messages` payload per conversation |
+| Obsidian vault (folder of `.md`) | `scripts/import_obsidian.py` | One memory per note (frontmatter stripped) |
+| Readwise highlights (CSV export) | `scripts/import_readwise.py` | One memory per highlight (+ its note) |
+
+All three take the same options: a `path` to the export, `--base-url`/`--api-key`
+(default to `$MEM0_URL`/`$MEM0_API_KEY`), `--source` (provenance tag), `--limit`
+(stop after N — good for a trial), and `--dry-run` (parse and report without
+sending). Each imported memory is tagged `agent_id=import:<source>` and carries a
+`source` (plus `title`/`path`/`book`/`author` where available) in its metadata, so
+you can later tell imported memories apart from ones written during a session.
+
+```bash
+# 1. Preview without sending anything
+python scripts/import_chatgpt.py ~/Downloads/conversations.json --dry-run
+
+# 2. Trial run: import only the first 5
+export MEM0_URL=https://mem0.your-domain.com
+export MEM0_API_KEY=...
+python scripts/import_obsidian.py ~/my-vault --limit 5
+
+# 3. Full import
+python scripts/import_readwise.py ~/Downloads/readwise.csv
+```
+
+**Cost note.** Every imported memory goes through the normal `add` path, which
+invokes the fact-extraction LLM (see the
+[Configuration reference](#configuration-reference)). A large ChatGPT or Obsidian import can mean
+thousands of LLM calls — use `--dry-run` and `--limit` first to gauge volume.
+mem0 also deduplicates semantically on add, so re-importing the same content
+often results in no new memories.
+
+> Requirements: Python 3.12 and the project's dependencies installed
+> (`pip install -r requirements.txt`); the scripts add the repo root to
+> `sys.path`, so no packaging step is needed.
+
 ## Backups and restore
 
 The `mem0-backup` app handles nightly snapshots automatically (see

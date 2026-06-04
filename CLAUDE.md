@@ -45,6 +45,7 @@ Phase 1 (MVP) = static bearer-token auth. Phase 2 adds OAuth 2.1 + PKCE + DCR en
 - `app/oauth.py` / `app/oauth_store.py` — Phase 2 OAuth AS endpoints + SQLite store at `/app/data/oauth.db` (CapRover persistent volume).
 - `app/main.py` — wiring (FastAPI + FastMCP mount + lifespan + `/healthz`).
 - `backup/` — separate CapRover app: Alpine + crond running `backup.sh` nightly. No exposed ports.
+- `digest/` — optional separate CapRover app: Python 3.12-alpine + crond. Summarizes recent memories (REST + optional Claude) and posts to a Slack/Discord webhook. `digest.py` holds pure, unit-tested helpers; `entrypoint.sh` builds the crontab from `$DIGEST_CRON`. No exposed ports.
 
 ## Commands (per PRD §13/§16)
 

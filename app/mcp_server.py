@@ -3,6 +3,7 @@ from fastmcp import FastMCP
 from app import memory as memory_mod
 from app.auth import build_verifier
 from app.config import get_settings
+from app.ranking import rerank_by_recency
 
 
 def build_mcp() -> FastMCP:
@@ -30,12 +31,18 @@ def build_mcp() -> FastMCP:
         return memory.add(content, **kwargs)
 
     @mcp.tool
-    def search_memories(query: str, limit: int = 10) -> dict:
+    def search_memories(query: str, limit: int = 10, recency_weight: float = 0.0) -> dict:
         """Search long-term memory by semantic similarity.
 
         Searches the single shared memory store for the user, across all agents.
+
+        recency_weight (0.0-1.0) optionally biases results toward more recently
+        created or updated memories. Leave it at 0 for pure semantic relevance;
+        raise it (e.g. 0.3) when the user asks what is *latest* or *current* and
+        recency matters more than an exact topical match.
         """
-        return memory.search(query=query, filters={"user_id": default_user}, top_k=limit)
+        results = memory.search(query=query, filters={"user_id": default_user}, top_k=limit)
+        return rerank_by_recency(results, recency_weight)
 
     @mcp.tool
     def list_memories() -> dict:

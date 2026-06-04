@@ -64,6 +64,9 @@ app/
                     user_id defaulted to MEM0_DEFAULT_USER_ID.
   rest.py           REST router under /api/v1 (mounted with prefix in main.py). Pydantic request
                     models, _scope_kwargs() for user/agent/run scoping, check_qdrant() helper.
+  ranking.py        rerank_by_recency(): optional, opt-in post-search re-ranking that blends
+                    mem0's similarity score with a recency decay. No-op when recency_weight=0,
+                    so default REST/MCP search behavior is unchanged.
   auth.py           require_bearer (REST dependency), CompositeVerifier and StaticTokenVerifier
                     wiring, build_verifier() selecting Phase 1 vs Phase 2.
   oauth.py          Phase 2 OAuth 2.1 + PKCE + DCR endpoints, JWT issuance, JWKS, AS/PR metadata.

@@ -54,6 +54,50 @@ def test_list(app_instance, mem, auth_header):
     assert kwargs["top_k"] == 50  # default list limit must reach mem0 as top_k
 
 
+def test_search_default_does_not_rerank(app_instance, mem, auth_header):
+    mem.search.return_value = {
+        "results": [
+            {"id": "a", "score": 0.9, "created_at": "2000-01-01T00:00:00Z"},
+            {"id": "b", "score": 0.5, "created_at": "2026-06-03T00:00:00Z"},
+        ]
+    }
+    c = _client(app_instance)
+    resp = c.post("/api/v1/memories/search", json={"query": "x"}, headers=auth_header)
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert [r["id"] for r in results] == ["a", "b"]
+    assert "rerank_score" not in results[0]
+
+
+def test_search_recency_weight_reranks(app_instance, mem, auth_header):
+    mem.search.return_value = {
+        "results": [
+            {"id": "old", "score": 0.9, "created_at": "2000-01-01T00:00:00Z"},
+            {"id": "new", "score": 0.5, "created_at": "2026-06-03T00:00:00Z"},
+        ]
+    }
+    c = _client(app_instance)
+    resp = c.post(
+        "/api/v1/memories/search",
+        json={"query": "x", "recency_weight": 0.9},
+        headers=auth_header,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["results"][0]["id"] == "new"
+
+
+def test_search_recency_weight_out_of_range_rejected(app_instance, mem, auth_header):
+    c = _client(app_instance)
+    assert (
+        c.post(
+            "/api/v1/memories/search",
+            json={"query": "x", "recency_weight": 1.5},
+            headers=auth_header,
+        ).status_code
+        == 422
+    )
+
+
 def test_search_scoped_by_run_id(app_instance, mem, auth_header):
     mem.search.return_value = {"results": []}
     c = _client(app_instance)

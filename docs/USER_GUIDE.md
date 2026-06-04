@@ -413,6 +413,22 @@ curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
   -d '{"query": "where do we host things?"}'
 ```
 
+**Recency boost (optional).** By default results are ordered purely by semantic
+similarity. When you care more about what's *latest* than what's the closest
+topical match, add `recency_weight` (0.0–1.0): `0` keeps the default order, `1`
+orders almost entirely by how recently each memory was created or updated. The
+half-life of the decay (default 30 days) is tunable via `recency_half_life_days`.
+
+```bash
+curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
+  -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
+  -d '{"query": "current deploy target", "recency_weight": 0.4}'
+```
+
+When `recency_weight > 0`, each returned result carries a `rerank_score` showing
+the blended similarity-plus-recency value it was sorted by. The MCP
+`search_memories` tool accepts the same `recency_weight` argument.
+
 ### List memories — `GET /api/v1/memories`
 
 Query params: `agent_id`, `run_id`, `user_id`, `limit` (1–100, default 50).

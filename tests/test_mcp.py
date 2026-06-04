@@ -55,6 +55,22 @@ async def test_read_tools_do_not_expose_agent_id(mcp):
         assert "agent_id" not in props, name
 
 
+async def test_search_exposes_recency_weight(mcp):
+    async with Client(mcp) as client:
+        tools = {t.name: t for t in await client.list_tools()}
+    props = (tools["search_memories"].inputSchema or {}).get("properties", {})
+    assert "recency_weight" in props
+
+
+async def test_search_with_recency_weight_invokes_mem(mcp, mem):
+    mem.search.return_value = {"results": []}
+    async with Client(mcp) as client:
+        await client.call_tool("search_memories", {"query": "x", "recency_weight": 0.5})
+    _, kwargs = mem.search.call_args
+    assert kwargs["filters"] == {"user_id": "default-user"}
+    assert kwargs["top_k"] == 10
+
+
 async def test_list_memories_tool(mcp, mem):
     mem.get_all.return_value = {"results": []}
     async with Client(mcp) as client:

@@ -46,6 +46,7 @@ Phase 1 (MVP) = static bearer-token auth. Phase 2 adds OAuth 2.1 + PKCE + DCR en
 - `app/main.py` — wiring (FastAPI + FastMCP mount + lifespan + `/healthz`).
 - `backup/` — separate CapRover app: Alpine + crond running `backup.sh` nightly. No exposed ports.
 - `digest/` — optional separate CapRover app: Python 3.12-alpine + crond. Summarizes recent memories (REST + optional Claude) and posts to a Slack/Discord webhook. `digest.py` holds pure, unit-tested helpers; `entrypoint.sh` builds the crontab from `$DIGEST_CRON`. No exposed ports.
+- `capture/` — optional separate CapRover app: Python 3.12-alpine long-running worker. A Telegram bot that long-polls for messages and saves them via REST (`agent_id=capture:telegram`). Only allowlisted chat IDs (`TELEGRAM_ALLOWED_CHAT_IDS`) may write; blank = discovery mode (replies with your chat id, stores nothing). No exposed ports.
 
 ## Commands (per PRD §13/§16)
 

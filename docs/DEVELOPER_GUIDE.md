@@ -80,7 +80,11 @@ backup/
   captain-definition  CapRover build descriptor for the separate backup app.
 
 tests/              pytest suite, one file per module.
-scripts/            smoke.sh (REST) and smoke_mcp.py (MCP) against a live server.
+scripts/            smoke.sh (REST) and smoke_mcp.py (MCP) against a live server; import_*.py
+                    data-import CLIs (thin wrappers over the importers package).
+importers/          Standalone import tooling (not part of the app image): client.py (a retrying
+                    REST client) plus pure parsers (chatgpt.py, obsidian.py, readwise.py) and the
+                    shared CLI runner (cli.py). Each parser yields MemoryClient.add kwargs.
 docs/               PRD.md (spec), USER_GUIDE.md, DEVELOPER_GUIDE.md.
 Dockerfile          Main app image; runs uvicorn with --workers 2.
 captain-definition  CapRover build descriptor for the main app.

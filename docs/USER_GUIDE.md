@@ -14,6 +14,7 @@ connect clients to it, and use it day to day. If you want to work on the code it
   - [1. Deploy the main app](#1-deploy-the-main-app-mem0-server)
   - [2. Deploy the backup app](#2-deploy-the-backup-app-mem0-backup)
   - [3. Deploy the digest app (optional)](#3-deploy-the-digest-app-optional-mem0-digest)
+  - [4. Deploy the capture bot (optional)](#4-deploy-the-capture-bot-optional-mem0-capture)
 - [Connecting clients](#connecting-clients)
   - [Claude Code](#claude-code)
   - [Claude Desktop](#claude-desktop)
@@ -278,6 +279,52 @@ docker run -d --name mem0-digest \
   -e DIGEST_WEBHOOK_URL=https://hooks.slack.com/services/... \
   -e DIGEST_CRON="0 8 * * *" -e DIGEST_WINDOW_DAYS=1 \
   mem0-digest
+```
+
+### 4. Deploy the capture bot (optional, `mem0-capture`)
+
+The optional **capture bot** lets you save a thought into memory by sending a Telegram message —
+frictionless capture from your phone. It's a **separate**, port-less CapRover app built from the
+`capture/` directory. It long-polls the Telegram Bot API (no inbound webhook or public port needed)
+and stores each message via `POST /api/v1/memories`, tagged `agent_id=capture:telegram`.
+
+Because the memory store is single-user and high-trust, the bot **only saves messages from an
+allowlist of Telegram chat IDs** — anyone else is refused.
+
+1. Create a Telegram bot: message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the
+   **bot token** it gives you.
+2. Create a CapRover app named `mem0-capture`. It needs **no exposed ports**.
+3. Set its **Captain Definition Relative Path** to `./capture/captain-definition`.
+4. Set its env vars (see the table below), **leaving `TELEGRAM_ALLOWED_CHAT_IDS` blank for now**, and
+   deploy.
+5. Message your bot anything. It replies with your **chat id** (it stores nothing yet — "discovery
+   mode"). Put that id in `TELEGRAM_ALLOWED_CHAT_IDS` and redeploy.
+6. Message it again — it now replies "Saved ✓" and the note is in your memory.
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `MEM0_URL` | yes | — | Base URL of the memory server. |
+| `MEM0_API_KEY` | yes | — | The same bearer token the server uses. |
+| `TELEGRAM_BOT_TOKEN` | yes | — | Bot token from @BotFather. |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | recommended | — | Comma-separated chat IDs allowed to save. **Blank = discovery mode** (replies with your chat id, stores nothing). |
+| `CAPTURE_AGENT_ID` | no | `capture:telegram` | Provenance tag stored as `agent_id`. |
+| `TELEGRAM_POLL_TIMEOUT` | no | `30` | Long-poll seconds per Telegram request. |
+
+Send plain text to save it as-is, or use `/note <text>`. `/start` and `/help` show usage. Other chat
+platforms (Slack slash commands, Discord bots) can be added the same way — parse the inbound message
+and call the same `POST /api/v1/memories` endpoint.
+
+> **Security:** keep `TELEGRAM_ALLOWED_CHAT_IDS` set in production. Anyone who finds your bot can
+> message it, but only allowlisted chats can write to your memory; everyone else is refused.
+
+Non-CapRover hosts can run the same image directly:
+
+```bash
+docker build -t mem0-capture ./capture
+docker run -d --name mem0-capture \
+  -e MEM0_URL=https://mem0.your-domain.com -e MEM0_API_KEY=... \
+  -e TELEGRAM_BOT_TOKEN=123456:ABC... -e TELEGRAM_ALLOWED_CHAT_IDS=123456789 \
+  mem0-capture
 ```
 
 ## Connecting clients
@@ -602,3 +649,5 @@ status, and latency. The `Authorization` header is never logged.
 | Connector fails right after consent; logs show `POST /oauth/register → 400` | The client's callback isn't in `OAUTH_ALLOWED_REDIRECT_URIS`. The server logs a `dcr_redirect_uri_rejected` warning with the exact `requested` URI and the active `allowed` list — add the requested URI to `OAUTH_ALLOWED_REDIRECT_URIS` and redeploy. Claude.ai web/desktop/mobile/Cowork use `https://claude.ai/api/mcp/auth_callback`. |
 | Backup job not running | Check the backup container: `caprover logs mem0-backup`. |
 | Digest not arriving | Check `caprover logs mem0-digest`. Common causes: `DIGEST_WEBHOOK_URL` unset (digest is only logged), nothing within `DIGEST_WINDOW_DAYS`, or a wrong webhook URL. Set `DIGEST_RUN_ON_START=true` to trigger a run immediately. |
+| Capture bot replies "not authorized" | Your Telegram chat id isn't in `TELEGRAM_ALLOWED_CHAT_IDS`. Clear that var to enter discovery mode (the bot replies with your id), add the id, and redeploy. |
+| Capture bot saves nothing / only echoes your chat id | It's in discovery mode because `TELEGRAM_ALLOWED_CHAT_IDS` is blank. Set it to your chat id and redeploy. |

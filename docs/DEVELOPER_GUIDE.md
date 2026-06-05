@@ -90,6 +90,12 @@ digest/             Optional companion app (separate, port-less CapRover app): a
   requirements.txt  httpx only.
   captain-definition  CapRover build descriptor for the digest app.
 
+capture/            Optional companion app (separate, port-less CapRover app): a long-running
+  capture.py        Telegram bot that long-polls for messages and saves them via the REST API,
+  Dockerfile        tagged agent_id=capture:telegram. Pure, unit-tested helpers (extract_message,
+  requirements.txt  classify, process_update) + run() loop. Only allowlisted chat IDs may save.
+  captain-definition  Python 3.12-alpine, httpx only. Not part of the main app image.
+
 tests/              pytest suite, one file per module.
 scripts/            smoke.sh (REST) and smoke_mcp.py (MCP) against a live server; import_*.py
                     data-import CLIs (thin wrappers over the importers package).

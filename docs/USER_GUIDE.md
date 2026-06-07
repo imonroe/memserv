@@ -52,6 +52,14 @@ from your text, then stores each fact as a vector **embedding** (OpenAI by defau
 Searches are semantic: you ask in natural language and get back the most similar stored facts, not
 keyword matches.
 
+**Re-adding the same content is free.** Before that LLM extraction runs, the server fingerprints the
+content (normalized: lowercased and whitespace-collapsed, so differences in case or spacing still
+match); if it matches something already stored, the add is skipped (no LLM call) and the response is
+`{"results": [], "deduplicated": true, "memory_id": "…"}`. This makes re-runs of imports and
+webhook/n8n retries cheap and idempotent. Pass `"dedup": false` on a REST add to force
+re-extraction. (This is distinct from mem0's *semantic* dedup, which still applies when
+similar-but-not-identical content reaches the LLM.)
+
 Memories can optionally be tagged with:
 
 - `agent_id` — a provenance tag for which agent/tool wrote it (e.g. `n8n-flow`, `claude-code`).
@@ -487,7 +495,12 @@ response bodies are JSON. `user_id` defaults to `MEM0_DEFAULT_USER_ID` if omitte
 ### Add a memory — `POST /api/v1/memories`
 
 Provide **either** `content` (a string) **or** `messages` (a chat transcript). Optional:
-`agent_id`, `run_id`, `metadata`, `user_id`.
+`agent_id`, `run_id`, `metadata`, `user_id`, and `dedup` (default `true`).
+
+By default, submitting content that matches something already stored — compared on a normalized
+fingerprint (case-insensitive, whitespace-collapsed), not raw bytes — is skipped before the LLM runs
+and returns `{"results": [], "deduplicated": true, "memory_id": "…"}` (see
+[How memory works](#how-memory-works)). Set `"dedup": false` to force re-extraction.
 
 ```bash
 curl -X POST https://mem0.your-domain.com/api/v1/memories \
@@ -590,12 +603,14 @@ python scripts/import_obsidian.py ~/my-vault --limit 5
 python scripts/import_readwise.py ~/Downloads/readwise.csv
 ```
 
-**Cost note.** Every imported memory goes through the normal `add` path, which
+**Cost note.** Every *new* imported memory goes through the normal `add` path, which
 invokes the fact-extraction LLM (see the
 [Configuration reference](#configuration-reference)). A large ChatGPT or Obsidian import can mean
 thousands of LLM calls — use `--dry-run` and `--limit` first to gauge volume.
-mem0 also deduplicates semantically on add, so re-importing the same content
-often results in no new memories.
+**Re-running an import is cheap and idempotent:** content already stored — matched on a normalized
+fingerprint (case-insensitive, whitespace-collapsed) — is skipped *before* the LLM runs (see
+[How memory works](#how-memory-works)), so a second pass over the same export adds nothing and costs
+nothing.
 
 > Requirements: Python 3.12 and the project's dependencies installed
 > (`pip install -r requirements.txt`); the scripts add the repo root to

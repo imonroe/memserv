@@ -22,13 +22,16 @@ def build_mcp() -> FastMCP:
         agent_id is an optional provenance tag recording which agent wrote the
         memory. It does NOT partition the store — search and list always span
         every memory for the user, so all connected agents share one memory.
+
+        Submitting the same content again is automatically deduplicated and
+        skips re-processing, so it's safe to call without checking first.
         """
         kwargs: dict = {"user_id": default_user}
         if agent_id:
             kwargs["agent_id"] = agent_id
         if metadata:
             kwargs["metadata"] = metadata
-        return memory.add(content, **kwargs)
+        return memory_mod.add_memory(content, **kwargs)
 
     @mcp.tool
     def search_memories(query: str, limit: int = 10, recency_weight: float = 0.0) -> dict:

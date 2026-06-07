@@ -1,3 +1,5 @@
+import hashlib
+import json
 from functools import lru_cache
 
 from app.config import Settings, get_settings
@@ -45,3 +47,77 @@ def get_memory():
     from mem0 import Memory
 
     return Memory.from_config(_build_config(get_settings()))
+
+
+def _normalize_text(text: str) -> str:
+    # Lowercase and collapse all runs of whitespace (incl. newlines/tabs) to a
+    # single space, so trivial formatting differences fingerprint the same.
+    return " ".join(text.split()).lower()
+
+
+def content_fingerprint(content) -> str:
+    """A deterministic fingerprint of the raw add() input, for cheap dedup.
+
+    Normalizes case and whitespace so trivial formatting differences fingerprint
+    the same, then SHA-256s the result. For a message transcript, each message's
+    role and text are normalized individually (so whitespace/case differences in
+    the text don't defeat dedup) before hashing.
+    """
+    if isinstance(content, str):
+        normalized = _normalize_text(content)
+    elif isinstance(content, list):
+        parts = []
+        for message in content:
+            if isinstance(message, dict):
+                role = str(message.get("role", "")).strip().lower()
+                parts.append(f"{role}\x1f{_normalize_text(str(message.get('content', '')))}")
+            else:
+                parts.append(_normalize_text(str(message)))
+        normalized = "\x1e".join(parts)
+    else:
+        normalized = _normalize_text(json.dumps(content, sort_keys=True))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _existing_fingerprint_id(memory, fingerprint: str, user_id: str | None) -> str | None:
+    """Return the id of an already-stored memory with this fingerprint, or None.
+
+    Best-effort: the fingerprint is matched against the `content_fp` payload
+    field via the vector store's filter. Any error (store quirk, transient
+    failure) returns None so the dedup check never blocks a write — it only ever
+    saves work, never prevents it.
+    """
+    filters: dict = {"content_fp": fingerprint}
+    if user_id:
+        filters["user_id"] = user_id
+    try:
+        result = memory.vector_store.list(filters=filters, top_k=1)
+    except Exception:
+        return None
+    # mem0's Qdrant store returns a (points, next_offset) tuple; normalize that
+    # and a bare-list return to the points list.
+    points = result[0] if isinstance(result, tuple) else result
+    if not points:
+        return None
+    return getattr(points[0], "id", None)
+
+
+def add_memory(content, *, dedup: bool = True, **kwargs) -> dict:
+    """Add a memory, optionally skipping mem0's LLM extraction for exact repeats.
+
+    With `dedup` on (default), a normalized SHA-256 fingerprint of the raw
+    content is computed and stored in metadata as `content_fp`. If a memory with
+    the same fingerprint already exists for the user, the add is skipped — no LLM
+    fact-extraction call — and a `{"deduplicated": True}` marker is returned.
+    Pass `dedup=False` to force a normal add (e.g. to re-extract).
+    """
+    memory = get_memory()
+    if not dedup:
+        return memory.add(content, **kwargs)
+    fingerprint = content_fingerprint(content)
+    existing_id = _existing_fingerprint_id(memory, fingerprint, kwargs.get("user_id"))
+    if existing_id is not None:
+        return {"results": [], "deduplicated": True, "memory_id": existing_id}
+    metadata = dict(kwargs.pop("metadata", None) or {})
+    metadata["content_fp"] = fingerprint
+    return memory.add(content, metadata=metadata, **kwargs)

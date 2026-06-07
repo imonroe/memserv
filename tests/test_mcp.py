@@ -33,6 +33,16 @@ async def test_add_memory_tool(mcp, mem):
     args, kwargs = mem.add.call_args
     assert args[0] == "remember this"
     assert kwargs["user_id"] == "default-user"
+    assert "content_fp" in kwargs["metadata"]  # dedup fingerprint stored
+
+
+async def test_add_memory_tool_deduplicates(mcp, mem):
+    from types import SimpleNamespace
+
+    mem.vector_store.list.return_value = ([SimpleNamespace(id="dup-1")], None)
+    async with Client(mcp) as client:
+        await client.call_tool("add_memory", {"content": "remember this"})
+    mem.add.assert_not_called()  # exact repeat is skipped, no LLM extraction
 
 
 async def test_search_memories_tool(mcp, mem):

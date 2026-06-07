@@ -31,6 +31,38 @@ def test_add_memory_requires_content_or_messages(app_instance, mem, auth_header)
     assert resp.status_code == 422
 
 
+def test_add_memory_stores_fingerprint(app_instance, mem, auth_header):
+    mem.add.return_value = {"results": []}
+    c = _client(app_instance)
+    resp = c.post("/api/v1/memories", json={"content": "hi"}, headers=auth_header)
+    assert resp.status_code == 200
+    _, kwargs = mem.add.call_args
+    assert "content_fp" in kwargs["metadata"]  # fingerprint stored for dedup
+
+
+def test_add_memory_deduplicates_exact_repeat(app_instance, mem, auth_header):
+    from types import SimpleNamespace
+
+    mem.vector_store.list.return_value = ([SimpleNamespace(id="dup-1")], None)
+    c = _client(app_instance)
+    resp = c.post("/api/v1/memories", json={"content": "hi"}, headers=auth_header)
+    assert resp.status_code == 200
+    assert resp.json() == {"results": [], "deduplicated": True, "memory_id": "dup-1"}
+    mem.add.assert_not_called()  # no LLM extraction on a duplicate
+
+
+def test_add_memory_dedup_false_bypasses_check(app_instance, mem, auth_header):
+    from types import SimpleNamespace
+
+    mem.vector_store.list.return_value = ([SimpleNamespace(id="dup-1")], None)
+    mem.add.return_value = {"results": []}
+    c = _client(app_instance)
+    resp = c.post("/api/v1/memories", json={"content": "hi", "dedup": False}, headers=auth_header)
+    assert resp.status_code == 200
+    mem.add.assert_called_once()
+    mem.vector_store.list.assert_not_called()
+
+
 def test_search(app_instance, mem, auth_header):
     mem.search.return_value = {"results": []}
     c = _client(app_instance)

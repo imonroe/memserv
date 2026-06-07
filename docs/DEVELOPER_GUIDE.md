@@ -63,7 +63,10 @@ app/
                     cheap content-fingerprint dedup: it SHA-256s the normalized raw input, stores
                     it in the `content_fp` payload field, and skips the LLM extraction if a memory
                     with that fingerprint already exists (fail-open — a lookup error just proceeds).
-                    The most tweak-prone file.
+                    keyword_search() is the substring-match fallback behind search mode="keyword":
+                    it scans the user's memories via vector_store.list() and matches the query as a
+                    case-insensitive substring of the `data` payload (fail-open). The most tweak-prone
+                    file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
                     user_id defaulted to MEM0_DEFAULT_USER_ID.
   rest.py           REST router under /api/v1 (mounted with prefix in main.py). Pydantic request

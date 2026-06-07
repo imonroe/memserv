@@ -1,8 +1,10 @@
 import hashlib
 import json
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from app.config import Settings, get_settings
+from app.ranking import _parse_timestamp
 
 
 def _provider_config(model: str, api_key: str | None) -> dict:
@@ -121,3 +123,63 @@ def add_memory(content, *, dedup: bool = True, **kwargs) -> dict:
     metadata = dict(kwargs.pop("metadata", None) or {})
     metadata["content_fp"] = fingerprint
     return memory.add(content, metadata=metadata, **kwargs)
+
+
+# Upper bound on how many of the user's memories a keyword search scans in one
+# pass. Generous for a single-user store; keyword search is a literal-match
+# fallback, not the primary retrieval path.
+DEFAULT_KEYWORD_SCAN_LIMIT = 5000
+
+
+def _point_to_result(point) -> dict:
+    """Shape a Qdrant point into a search-result dict (memory text + payload)."""
+    payload = dict(getattr(point, "payload", None) or {})
+    # Drop internal plumbing that shouldn't surface in results.
+    payload.pop("text_lemmatized", None)  # BM25 helper
+    payload.pop("content_fp", None)  # dedup fingerprint
+    memory_text = payload.pop("data", None)
+    return {"id": getattr(point, "id", None), "memory": memory_text, **payload}
+
+
+def _point_recency(point) -> datetime:
+    """Sort key for keyword results: updated_at (preferred) or created_at, parsed."""
+    payload = getattr(point, "payload", None) or {}
+    ts = _parse_timestamp(payload.get("updated_at")) or _parse_timestamp(payload.get("created_at"))
+    return ts or datetime.min.replace(tzinfo=UTC)
+
+
+def keyword_search(
+    query: str,
+    *,
+    user_id: str | None = None,
+    limit: int = 10,
+    scan_limit: int = DEFAULT_KEYWORD_SCAN_LIMIT,
+) -> dict:
+    """Case-insensitive substring search over stored memory text.
+
+    A literal-match fallback for terms semantic search misses (names, IDs, URLs,
+    rare tokens). Scans up to `scan_limit` of the user's memories via the vector
+    store's payload listing and matches `query` as a case-insensitive substring
+    of each memory's text, returning the most recent matches first. Scoped by
+    `user_id` only (it spans the whole user store, like the MCP read tools).
+    An empty/whitespace query matches nothing. Fail-open: any store error
+    returns no results.
+    """
+    needle = query.strip().casefold()
+    if not needle:
+        return {"results": []}
+    memory = get_memory()
+    filters = {"user_id": user_id} if user_id else None
+    try:
+        result = memory.vector_store.list(filters=filters, top_k=scan_limit)
+    except Exception:
+        return {"results": []}
+    points = result[0] if isinstance(result, tuple) else result
+    matches = [
+        point
+        for point in (points or [])
+        if isinstance((getattr(point, "payload", None) or {}).get("data"), str)
+        and needle in point.payload["data"].casefold()
+    ]
+    matches.sort(key=_point_recency, reverse=True)  # most recently touched first
+    return {"results": [_point_to_result(p) for p in matches[:limit]]}

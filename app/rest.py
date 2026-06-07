@@ -37,8 +37,11 @@ class SearchRequest(BaseModel):
     agent_id: str | None = None
     run_id: str | None = None
     limit: int = Field(default=10, ge=1, le=100)
-    # Opt-in recency boost. 0 = pure semantic similarity (unchanged behavior),
-    # 1 = order almost entirely by how recently a memory was created/updated.
+    # "semantic" (default, vector similarity) or "keyword" (case-insensitive
+    # substring match for exact terms semantic search misses).
+    mode: Literal["semantic", "keyword"] = "semantic"
+    # Opt-in recency boost (semantic mode only). 0 = pure semantic similarity
+    # (unchanged), 1 = order almost entirely by how recently a memory was touched.
     recency_weight: float = Field(default=0.0, ge=0.0, le=1.0)
     recency_half_life_days: float = Field(default=30.0, gt=0.0)
 
@@ -72,8 +75,10 @@ def add_memory(req: AddMemoryRequest) -> dict:
 
 @router.post("/memories/search")
 def search_memories(req: SearchRequest) -> dict:
-    memory = memory_mod.get_memory()
     filters = _scope_kwargs(req.user_id, req.agent_id, req.run_id)
+    if req.mode == "keyword":
+        return memory_mod.keyword_search(req.query, user_id=filters["user_id"], limit=req.limit)
+    memory = memory_mod.get_memory()
     results = memory.search(query=req.query, filters=filters, top_k=req.limit)
     return rerank_by_recency(results, req.recency_weight, req.recency_half_life_days)
 

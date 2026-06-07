@@ -542,6 +542,23 @@ When `recency_weight > 0`, each returned result carries a `rerank_score` showing
 the blended similarity-plus-recency value it was sorted by. The MCP
 `search_memories` tool accepts the same `recency_weight` argument.
 
+**Keyword search (optional).** Semantic search ranks by *meaning*, which can miss
+an exact term — a name, identifier, URL, or rare token. Pass `"mode": "keyword"`
+to instead do a **case-insensitive substring match** over memory text, returning
+the most recent matches first:
+
+```bash
+curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
+  -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
+  -d '{"query": "Philips Hue", "mode": "keyword"}'
+```
+
+The default is `"mode": "semantic"`. The MCP `search_memories` tool accepts the
+same `mode` argument. Keyword mode spans the whole user store and scans up to a
+few thousand of the most recent memories per query — ample for a personal store;
+it's a literal-match fallback, not a replacement for semantic retrieval.
+(`recency_weight` applies to semantic mode only.)
+
 ### List memories — `GET /api/v1/memories`
 
 Query params: `agent_id`, `run_id`, `user_id`, `limit` (1–100, default 50).

@@ -121,3 +121,55 @@ def add_memory(content, *, dedup: bool = True, **kwargs) -> dict:
     metadata = dict(kwargs.pop("metadata", None) or {})
     metadata["content_fp"] = fingerprint
     return memory.add(content, metadata=metadata, **kwargs)
+
+
+# Upper bound on how many of the user's memories a keyword search scans in one
+# pass. Generous for a single-user store; keyword search is a literal-match
+# fallback, not the primary retrieval path.
+DEFAULT_KEYWORD_SCAN_LIMIT = 5000
+
+
+def _point_to_result(point) -> dict:
+    """Shape a Qdrant point into a search-result dict (memory text + payload)."""
+    payload = dict(getattr(point, "payload", None) or {})
+    payload.pop("text_lemmatized", None)  # internal BM25 helper — noise in results
+    memory_text = payload.pop("data", None)
+    return {"id": getattr(point, "id", None), "memory": memory_text, **payload}
+
+
+def keyword_search(
+    query: str,
+    *,
+    user_id: str | None = None,
+    limit: int = 10,
+    scan_limit: int = DEFAULT_KEYWORD_SCAN_LIMIT,
+) -> dict:
+    """Case-insensitive substring search over stored memory text.
+
+    A literal-match fallback for terms semantic search misses (names, IDs, URLs,
+    rare tokens). Scans up to `scan_limit` of the user's memories via the vector
+    store's payload listing and matches `query` as a case-insensitive substring
+    of each memory's text, returning the most recent matches first. Scoped by
+    `user_id` only (it spans the whole user store, like the MCP read tools).
+    Fail-open: any store error returns no results.
+    """
+    memory = get_memory()
+    filters = {"user_id": user_id} if user_id else None
+    try:
+        result = memory.vector_store.list(filters=filters, top_k=scan_limit)
+    except Exception:
+        return {"results": []}
+    points = result[0] if isinstance(result, tuple) else result
+    needle = query.casefold()
+    matches = [
+        point
+        for point in (points or [])
+        if isinstance((getattr(point, "payload", None) or {}).get("data"), str)
+        and needle in point.payload["data"].casefold()
+    ]
+    # ISO-8601 UTC timestamps sort chronologically as plain strings; newest first.
+    matches.sort(
+        key=lambda p: (getattr(p, "payload", None) or {}).get("created_at", ""),
+        reverse=True,
+    )
+    return {"results": [_point_to_result(p) for p in matches[:limit]]}

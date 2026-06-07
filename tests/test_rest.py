@@ -130,6 +130,32 @@ def test_search_recency_weight_out_of_range_rejected(app_instance, mem, auth_hea
     )
 
 
+def test_search_keyword_mode(app_instance, mem, auth_header):
+    from types import SimpleNamespace
+
+    point = SimpleNamespace(id="1", payload={"data": "the Philips hub", "created_at": "2026-06-01T00:00:00+00:00"})  # noqa: E501
+    mem.vector_store.list.return_value = ([point], None)
+    c = _client(app_instance)
+    resp = c.post(
+        "/api/v1/memories/search",
+        json={"query": "philips", "mode": "keyword"},
+        headers=auth_header,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["results"][0]["id"] == "1"
+    mem.search.assert_not_called()  # keyword mode bypasses vector search
+    _, kwargs = mem.vector_store.list.call_args
+    assert kwargs["filters"] == {"user_id": "default-user"}
+
+
+def test_search_invalid_mode_rejected(app_instance, mem, auth_header):
+    c = _client(app_instance)
+    resp = c.post(
+        "/api/v1/memories/search", json={"query": "x", "mode": "fuzzy"}, headers=auth_header
+    )
+    assert resp.status_code == 422
+
+
 def test_search_scoped_by_run_id(app_instance, mem, auth_header):
     mem.search.return_value = {"results": []}
     c = _client(app_instance)

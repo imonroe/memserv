@@ -70,6 +70,18 @@ async def test_search_exposes_recency_weight(mcp):
         tools = {t.name: t for t in await client.list_tools()}
     props = (tools["search_memories"].inputSchema or {}).get("properties", {})
     assert "recency_weight" in props
+    assert "mode" in props  # keyword vs semantic
+
+
+async def test_search_keyword_mode_uses_listing(mcp, mem):
+    from types import SimpleNamespace
+
+    point = SimpleNamespace(id="1", payload={"data": "Philips hub", "created_at": "2026-06-01T00:00:00+00:00"})  # noqa: E501
+    mem.vector_store.list.return_value = ([point], None)
+    async with Client(mcp) as client:
+        await client.call_tool("search_memories", {"query": "philips", "mode": "keyword"})
+    mem.search.assert_not_called()  # keyword mode bypasses vector search
+    mem.vector_store.list.assert_called_once()
 
 
 async def test_search_with_recency_weight_invokes_mem(mcp, mem):

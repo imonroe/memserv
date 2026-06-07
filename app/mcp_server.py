@@ -34,16 +34,23 @@ def build_mcp() -> FastMCP:
         return memory_mod.add_memory(content, **kwargs)
 
     @mcp.tool
-    def search_memories(query: str, limit: int = 10, recency_weight: float = 0.0) -> dict:
-        """Search long-term memory by semantic similarity.
+    def search_memories(
+        query: str, limit: int = 10, recency_weight: float = 0.0, mode: str = "semantic"
+    ) -> dict:
+        """Search long-term memory.
 
         Searches the single shared memory store for the user, across all agents.
 
-        recency_weight (0.0-1.0) optionally biases results toward more recently
-        created or updated memories. Leave it at 0 for pure semantic relevance;
-        raise it (e.g. 0.3) when the user asks what is *latest* or *current* and
-        recency matters more than an exact topical match.
+        mode: "semantic" (default) ranks by meaning/similarity. Use "keyword" for
+        a case-insensitive substring match when you need an exact term the
+        semantic search may miss — a name, identifier, URL, or rare token.
+
+        recency_weight (0.0-1.0, semantic mode only) optionally biases results
+        toward more recently created or updated memories. Leave it at 0 for pure
+        relevance; raise it (e.g. 0.3) when the user asks what is *latest*.
         """
+        if mode == "keyword":
+            return memory_mod.keyword_search(query, user_id=default_user, limit=limit)
         results = memory.search(query=query, filters={"user_id": default_user}, top_k=limit)
         return rerank_by_recency(results, recency_weight)
 

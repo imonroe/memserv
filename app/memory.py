@@ -49,17 +49,33 @@ def get_memory():
     return Memory.from_config(_build_config(get_settings()))
 
 
+def _normalize_text(text: str) -> str:
+    # Lowercase and collapse all runs of whitespace (incl. newlines/tabs) to a
+    # single space, so trivial formatting differences fingerprint the same.
+    return " ".join(text.split()).lower()
+
+
 def content_fingerprint(content) -> str:
     """A deterministic fingerprint of the raw add() input, for cheap dedup.
 
-    Normalizes (lowercase + collapse whitespace) so trivial formatting
-    differences fingerprint the same, then SHA-256s the result. Strings and
-    structured message lists are both supported.
+    Normalizes case and whitespace so trivial formatting differences fingerprint
+    the same, then SHA-256s the result. For a message transcript, each message's
+    role and text are normalized individually (so whitespace/case differences in
+    the text don't defeat dedup) before hashing.
     """
     if isinstance(content, str):
-        normalized = " ".join(content.split()).lower()
+        normalized = _normalize_text(content)
+    elif isinstance(content, list):
+        parts = []
+        for message in content:
+            if isinstance(message, dict):
+                role = str(message.get("role", "")).strip().lower()
+                parts.append(f"{role}\x1f{_normalize_text(str(message.get('content', '')))}")
+            else:
+                parts.append(_normalize_text(str(message)))
+        normalized = "\x1e".join(parts)
     else:
-        normalized = json.dumps(content, sort_keys=True, separators=(",", ":")).lower()
+        normalized = _normalize_text(json.dumps(content, sort_keys=True))
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 

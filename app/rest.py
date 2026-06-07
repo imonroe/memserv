@@ -24,8 +24,10 @@ class AddMemoryRequest(BaseModel):
     agent_id: str | None = None
     run_id: str | None = None
     metadata: dict | None = None
-    # When true (default), byte-identical content already stored is skipped
-    # before mem0's LLM fact-extraction runs. Set false to force re-extraction.
+    # When true (default), content already stored is skipped before mem0's LLM
+    # fact-extraction runs. Matching is on a normalized fingerprint (case-
+    # insensitive, whitespace-collapsed), not raw bytes. Set false to force
+    # re-extraction.
     dedup: bool = True
 
 

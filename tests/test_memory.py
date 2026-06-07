@@ -49,10 +49,20 @@ def test_content_fingerprint_differs_for_different_content():
 
 
 def test_content_fingerprint_handles_message_lists():
-    msgs = [{"role": "user", "content": "hi"}]
-    fp = content_fingerprint(msgs)
-    assert isinstance(fp, str) and len(fp) == 64
-    assert content_fingerprint(msgs) == fp  # stable
+    base = [{"role": "user", "content": "Hello   World"}]
+    # Case + whitespace (incl. newlines) inside message text are normalized.
+    equivalent = [{"role": "user", "content": "hello world"}]
+    newlined = [{"role": "user", "content": "hello\nworld"}]
+    assert content_fingerprint(base) == content_fingerprint(equivalent)
+    assert content_fingerprint(base) == content_fingerprint(newlined)
+    assert len(content_fingerprint(base)) == 64
+    # A different role or different text fingerprints differently.
+    assert content_fingerprint(base) != content_fingerprint(
+        [{"role": "assistant", "content": "hello world"}]
+    )
+    assert content_fingerprint(base) != content_fingerprint(
+        [{"role": "user", "content": "goodbye world"}]
+    )
 
 
 # --- _existing_fingerprint_id ------------------------------------------------

@@ -24,6 +24,9 @@ class AddMemoryRequest(BaseModel):
     agent_id: str | None = None
     run_id: str | None = None
     metadata: dict | None = None
+    # When true (default), byte-identical content already stored is skipped
+    # before mem0's LLM fact-extraction runs. Set false to force re-extraction.
+    dedup: bool = True
 
 
 class SearchRequest(BaseModel):
@@ -58,12 +61,11 @@ def _scope_kwargs(
 def add_memory(req: AddMemoryRequest) -> dict:
     if not req.content and not req.messages:
         raise HTTPException(status_code=422, detail="Provide either 'content' or 'messages'")
-    memory = memory_mod.get_memory()
     payload = req.content if req.content is not None else [m.model_dump() for m in req.messages]
     kwargs = _scope_kwargs(req.user_id, req.agent_id, req.run_id)
     if req.metadata:
         kwargs["metadata"] = req.metadata
-    return memory.add(payload, **kwargs)
+    return memory_mod.add_memory(payload, dedup=req.dedup, **kwargs)
 
 
 @router.post("/memories/search")

@@ -59,7 +59,11 @@ app/
   config.py         Settings (pydantic-settings); single source of config truth. Rejects
                     startup on missing required vars; validates provider keys.
   memory.py         mem0 wrapper. _build_config() assembles the mem0 config dict; get_memory()
-                    is the @lru_cache'd shared instance. The most tweak-prone file.
+                    is the @lru_cache'd shared instance. add_memory() wraps mem0's add with a
+                    cheap content-fingerprint dedup: it SHA-256s the normalized raw input, stores
+                    it in the `content_fp` payload field, and skips the LLM extraction if a memory
+                    with that fingerprint already exists (fail-open — a lookup error just proceeds).
+                    The most tweak-prone file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
                     user_id defaulted to MEM0_DEFAULT_USER_ID.
   rest.py           REST router under /api/v1 (mounted with prefix in main.py). Pydantic request

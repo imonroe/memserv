@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -7,8 +8,11 @@ from app.memory import (
     _existing_fingerprint_id,
     add_memory,
     content_fingerprint,
+    drop_expired,
     keyword_search,
 )
+
+EXPIRY_NOW = datetime(2026, 6, 7, tzinfo=UTC)
 
 
 def _point(id, data, created_at="2026-06-01T00:00:00+00:00", **extra):
@@ -234,6 +238,34 @@ def test_keyword_search_empty_query_matches_nothing(monkeypatch):
     fake = _patch_keyword(monkeypatch, [_point("1", "anything")])
     assert keyword_search("   ", user_id="ian") == {"results": []}
     fake.vector_store.list.assert_not_called()  # short-circuits before scanning
+
+
+def test_keyword_search_passes_extra_filters(monkeypatch):
+    fake = _patch_keyword(monkeypatch, [_point("1", "Philips hub")])
+    keyword_search("philips", user_id="ian", extra_filters={"review_status": "approved"})
+    _, kwargs = fake.vector_store.list.call_args
+    assert kwargs["filters"] == {"user_id": "ian", "review_status": "approved"}
+
+
+# --- drop_expired ------------------------------------------------------------
+
+
+def test_drop_expired_removes_past_keeps_future_and_missing():
+    results = {
+        "results": [
+            {"id": "past", "metadata": {"expires_at": "2020-01-01T00:00:00+00:00"}},
+            {"id": "future", "metadata": {"expires_at": "2030-01-01T00:00:00Z"}},
+            {"id": "no_expiry", "metadata": {}},
+            {"id": "toplevel_past", "expires_at": "2019-01-01T00:00:00+00:00"},
+        ]
+    }
+    out = drop_expired(results, now=EXPIRY_NOW)
+    assert [i["id"] for i in out["results"]] == ["future", "no_expiry"]
+
+
+def test_drop_expired_passes_through_non_results():
+    assert drop_expired([], now=EXPIRY_NOW) == []
+    assert drop_expired({"results": "x"}, now=EXPIRY_NOW) == {"results": "x"}
 
 
 def test_keyword_search_fails_open(monkeypatch):

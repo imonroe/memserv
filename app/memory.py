@@ -154,6 +154,7 @@ def keyword_search(
     user_id: str | None = None,
     limit: int = 10,
     scan_limit: int = DEFAULT_KEYWORD_SCAN_LIMIT,
+    extra_filters: dict | None = None,
 ) -> dict:
     """Case-insensitive substring search over stored memory text.
 
@@ -161,7 +162,8 @@ def keyword_search(
     rare tokens). Scans up to `scan_limit` of the user's memories via the vector
     store's payload listing and matches `query` as a case-insensitive substring
     of each memory's text, returning the most recent matches first. Scoped by
-    `user_id` only (it spans the whole user store, like the MCP read tools).
+    `user_id` only (it spans the whole user store, like the MCP read tools);
+    `extra_filters` adds exact-match payload conditions (e.g. provenance fields).
     An empty/whitespace query matches nothing. Fail-open: any store error
     returns no results.
     """
@@ -169,9 +171,13 @@ def keyword_search(
     if not needle:
         return {"results": []}
     memory = get_memory()
-    filters = {"user_id": user_id} if user_id else None
+    filters: dict = {}
+    if user_id:
+        filters["user_id"] = user_id
+    if extra_filters:
+        filters.update(extra_filters)
     try:
-        result = memory.vector_store.list(filters=filters, top_k=scan_limit)
+        result = memory.vector_store.list(filters=filters or None, top_k=scan_limit)
     except Exception:
         return {"results": []}
     points = result[0] if isinstance(result, tuple) else result
@@ -183,3 +189,32 @@ def keyword_search(
     ]
     matches.sort(key=_point_recency, reverse=True)  # most recently touched first
     return {"results": [_point_to_result(p) for p in matches[:limit]]}
+
+
+def _result_expiry(item) -> datetime | None:
+    """Parse an `expires_at` from a result item (top-level or nested metadata)."""
+    if not isinstance(item, dict):
+        return None
+    ts = _parse_timestamp(item.get("expires_at"))
+    if ts is None and isinstance(item.get("metadata"), dict):
+        ts = _parse_timestamp(item["metadata"].get("expires_at"))
+    return ts
+
+
+def drop_expired(results: dict, now: datetime | None = None) -> dict:
+    """Remove memories whose `expires_at` is at/before `now` from a results dict.
+
+    Supports the provenance convention's expiry field so stale facts can be
+    filtered out of reads. Items without a (parseable) `expires_at` are kept.
+    Anything not shaped like ``{"results": [...]}`` is returned unchanged.
+    """
+    if not isinstance(results, dict):
+        return results
+    items = results.get("results")
+    if not isinstance(items, list):
+        return results
+    now = now or datetime.now(UTC)
+    results["results"] = [
+        item for item in items if (exp := _result_expiry(item)) is None or exp > now
+    ]
+    return results

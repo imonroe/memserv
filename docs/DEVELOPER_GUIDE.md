@@ -65,12 +65,13 @@ app/
                     with that fingerprint already exists (fail-open — a lookup error just proceeds).
                     keyword_search() is the substring-match fallback behind search mode="keyword":
                     it scans the user's memories via vector_store.list() and matches the query as a
-                    case-insensitive substring of the `data` payload (fail-open). The most tweak-prone
-                    file.
+                    case-insensitive substring of the `data` payload (fail-open). drop_expired()
+                    removes results whose provenance `expires_at` is past. The most tweak-prone file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
                     user_id defaulted to MEM0_DEFAULT_USER_ID.
   rest.py           REST router under /api/v1 (mounted with prefix in main.py). Pydantic request
-                    models, _scope_kwargs() for user/agent/run scoping, check_qdrant() helper.
+                    models, _scope_kwargs() for user/agent/run scoping, _provenance_filters() for
+                    the source/confidence/review_status metadata convention, check_qdrant() helper.
   ranking.py        rerank_by_recency(): optional, opt-in post-search re-ranking that blends
                     mem0's similarity score with a recency decay. No-op when recency_weight=0,
                     so default REST/MCP search behavior is unchanged.

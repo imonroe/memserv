@@ -44,10 +44,23 @@ class SearchRequest(BaseModel):
     # (unchanged), 1 = order almost entirely by how recently a memory was touched.
     recency_weight: float = Field(default=0.0, ge=0.0, le=1.0)
     recency_half_life_days: float = Field(default=30.0, gt=0.0)
+    # Provenance/review-metadata filters (exact match); see the metadata convention.
+    source: str | None = None
+    confidence: str | None = None
+    review_status: str | None = None
+    exclude_expired: bool = False
 
 
 class UpdateMemoryRequest(BaseModel):
     content: str
+
+
+def _provenance_filters(
+    source: str | None, confidence: str | None, review_status: str | None
+) -> dict:
+    """Exact-match payload filters for the provenance/review metadata convention."""
+    pairs = (("source", source), ("confidence", confidence), ("review_status", review_status))
+    return {key: value for key, value in pairs if value}
 
 
 def _scope_kwargs(
@@ -75,12 +88,20 @@ def add_memory(req: AddMemoryRequest) -> dict:
 
 @router.post("/memories/search")
 def search_memories(req: SearchRequest) -> dict:
-    filters = _scope_kwargs(req.user_id, req.agent_id, req.run_id)
+    prov = _provenance_filters(req.source, req.confidence, req.review_status)
     if req.mode == "keyword":
-        return memory_mod.keyword_search(req.query, user_id=filters["user_id"], limit=req.limit)
-    memory = memory_mod.get_memory()
-    results = memory.search(query=req.query, filters=filters, top_k=req.limit)
-    return rerank_by_recency(results, req.recency_weight, req.recency_half_life_days)
+        results = memory_mod.keyword_search(
+            req.query,
+            user_id=_scope_kwargs(req.user_id)["user_id"],
+            limit=req.limit,
+            extra_filters=prov or None,
+        )
+    else:
+        filters = {**_scope_kwargs(req.user_id, req.agent_id, req.run_id), **prov}
+        memory = memory_mod.get_memory()
+        raw = memory.search(query=req.query, filters=filters, top_k=req.limit)
+        results = rerank_by_recency(raw, req.recency_weight, req.recency_half_life_days)
+    return memory_mod.drop_expired(results) if req.exclude_expired else results
 
 
 @router.get("/memories")
@@ -88,11 +109,19 @@ def list_memories(
     user_id: str | None = None,
     agent_id: str | None = None,
     run_id: str | None = None,
+    source: str | None = None,
+    confidence: str | None = None,
+    review_status: str | None = None,
+    exclude_expired: bool = False,
     limit: int = Query(default=50, ge=1, le=100),
 ) -> dict:
     memory = memory_mod.get_memory()
-    filters = _scope_kwargs(user_id, agent_id, run_id)
-    return memory.get_all(filters=filters, top_k=limit)
+    filters = {
+        **_scope_kwargs(user_id, agent_id, run_id),
+        **_provenance_filters(source, confidence, review_status),
+    }
+    results = memory.get_all(filters=filters, top_k=limit)
+    return memory_mod.drop_expired(results) if exclude_expired else results
 
 
 @router.get("/memories/{memory_id}")

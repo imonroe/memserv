@@ -71,6 +71,43 @@ Memories can optionally be tagged with:
 
 `user_id` always defaults to `MEM0_DEFAULT_USER_ID`; you rarely need to set it.
 
+### Provenance and review metadata (convention)
+
+For "governed" agent memory — distinguishing trusted from untrusted, fresh from
+stale — there's a small **convention** of reserved `metadata` keys. They're just
+ordinary metadata (nothing enforces them), but the REST read endpoints can filter
+on them, and agents can reason about them:
+
+| Key | Recommended values | Meaning |
+|---|---|---|
+| `source` | free-form, e.g. `user`, `agent`, `import:chatgpt`, `capture:telegram`, `tool:n8n` | Where the memory came from. The import scripts and capture bot already set this. |
+| `confidence` | `high`, `medium`, `low`, `unknown` | How much to trust the content. |
+| `review_status` | `unreviewed`, `approved`, `rejected`, `stale` | Whether a human/agent has vetted it. |
+| `reviewed_by` / `reviewed_at` | free-form / ISO 8601 | Who vetted it and when (optional). |
+| `expires_at` | ISO 8601 timestamp | When the fact should stop being trusted. |
+
+`confidence` and `review_status` are **independent** — a memory can be
+high-confidence but unreviewed, or approved but deliberately low-confidence.
+`expires_at` addresses the common agent-memory failure mode where *old memory
+stays trusted after the world changed*: set it on facts that age out, then pass
+`exclude_expired=true` on reads (below) to drop them. This is a flat convention
+layered on `metadata`; the existing top-level `agent_id` remains the writer tag.
+
+Set them on any write, e.g.:
+
+```bash
+curl -X POST https://mem0.your-domain.com/api/v1/memories \
+  -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
+  -d '{"content": "Q3 OKRs are finalized", "agent_id": "claude-code",
+       "metadata": {"source": "user", "confidence": "high",
+                    "review_status": "approved", "expires_at": "2026-10-01T00:00:00Z"}}'
+```
+
+Filter reads by them with the query params on `GET /api/v1/memories` (and the same
+fields on search) — see the [REST API reference](#rest-api-reference). Per the
+shared-store design, the **MCP** read tools never filter by these (they span the
+whole store); metadata filtering is a REST-only affordance for scripts.
+
 ## Prerequisites
 
 Before deploying you need:
@@ -561,12 +598,22 @@ it's a literal-match fallback, not a replacement for semantic retrieval.
 
 ### List memories — `GET /api/v1/memories`
 
-Query params: `agent_id`, `run_id`, `user_id`, `limit` (1–100, default 50).
+Query params: `agent_id`, `run_id`, `user_id`, `limit` (1–100, default 50), plus the
+provenance/review filters `source`, `confidence`, `review_status` (exact match), and
+`exclude_expired` (drop memories whose `expires_at` is in the past). See
+[Provenance and review metadata](#provenance-and-review-metadata-convention).
 
 ```bash
 curl https://mem0.your-domain.com/api/v1/memories?limit=20 \
   -H "Authorization: Bearer $MEM0_API_KEY"
+
+# Only approved, non-expired memories imported from ChatGPT:
+curl "https://mem0.your-domain.com/api/v1/memories?source=import:chatgpt&review_status=approved&exclude_expired=true" \
+  -H "Authorization: Bearer $MEM0_API_KEY"
 ```
+
+The same `source` / `confidence` / `review_status` / `exclude_expired` fields are
+accepted on `POST /api/v1/memories/search` (in both `semantic` and `keyword` modes).
 
 ### Get one — `GET /api/v1/memories/{memory_id}`
 

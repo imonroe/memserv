@@ -156,6 +156,66 @@ def test_search_invalid_mode_rejected(app_instance, mem, auth_header):
     assert resp.status_code == 422
 
 
+def test_list_filters_by_provenance_metadata(app_instance, mem, auth_header):
+    mem.get_all.return_value = {"results": []}
+    c = _client(app_instance)
+    resp = c.get(
+        "/api/v1/memories?source=import:chatgpt&confidence=high&review_status=approved",
+        headers=auth_header,
+    )
+    assert resp.status_code == 200
+    _, kwargs = mem.get_all.call_args
+    f = kwargs["filters"]
+    assert f["user_id"] == "default-user"
+    assert f["source"] == "import:chatgpt"
+    assert f["confidence"] == "high"
+    assert f["review_status"] == "approved"
+
+
+def test_list_exclude_expired(app_instance, mem, auth_header):
+    mem.get_all.return_value = {
+        "results": [
+            {"id": "stale", "metadata": {"expires_at": "2000-01-01T00:00:00+00:00"}},
+            {"id": "fresh", "metadata": {}},
+        ]
+    }
+    c = _client(app_instance)
+    resp = c.get("/api/v1/memories?exclude_expired=true", headers=auth_header)
+    assert resp.status_code == 200
+    assert [i["id"] for i in resp.json()["results"]] == ["fresh"]
+
+
+def test_search_filters_by_provenance_metadata(app_instance, mem, auth_header):
+    mem.search.return_value = {"results": []}
+    c = _client(app_instance)
+    resp = c.post(
+        "/api/v1/memories/search",
+        json={"query": "x", "review_status": "approved"},
+        headers=auth_header,
+    )
+    assert resp.status_code == 200
+    _, kwargs = mem.search.call_args
+    assert kwargs["filters"]["review_status"] == "approved"
+    assert kwargs["filters"]["user_id"] == "default-user"
+
+
+def test_search_exclude_expired(app_instance, mem, auth_header):
+    mem.search.return_value = {
+        "results": [
+            {"id": "stale", "metadata": {"expires_at": "2000-01-01T00:00:00+00:00"}},
+            {"id": "fresh", "metadata": {}},
+        ]
+    }
+    c = _client(app_instance)
+    resp = c.post(
+        "/api/v1/memories/search",
+        json={"query": "x", "exclude_expired": True},
+        headers=auth_header,
+    )
+    assert resp.status_code == 200
+    assert [i["id"] for i in resp.json()["results"]] == ["fresh"]
+
+
 def test_search_scoped_by_run_id(app_instance, mem, auth_header):
     mem.search.return_value = {"results": []}
     c = _client(app_instance)

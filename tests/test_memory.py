@@ -184,21 +184,56 @@ def test_keyword_search_sorts_recent_first_and_limits(monkeypatch):
     assert [r["id"] for r in out["results"]] == ["new", "mid"]  # newest first, capped at 2
 
 
+def test_keyword_search_prefers_updated_at_for_ordering(monkeypatch):
+    # "old" was created later but "new" was updated more recently → "new" first.
+    _patch_keyword(
+        monkeypatch,
+        [
+            _point("old", "alpha one", created_at="2026-06-05T00:00:00+00:00"),
+            _point(
+                "new",
+                "alpha two",
+                created_at="2020-01-01T00:00:00+00:00",
+                updated_at="2026-06-06T00:00:00Z",  # note: Zulu form, different tz repr
+            ),
+        ],
+    )
+    out = keyword_search("alpha", user_id="ian")
+    assert [r["id"] for r in out["results"]] == ["new", "old"]
+
+
 def test_keyword_search_drops_internal_fields_keeps_metadata(monkeypatch):
     _patch_keyword(
         monkeypatch,
-        [_point("1", "match me", agent_id="cli", text_lemmatized="match me")],
+        [
+            _point(
+                "1",
+                "match me",
+                agent_id="cli",
+                text_lemmatized="match me",
+                content_fp="deadbeef",
+            )
+        ],
     )
     result = keyword_search("match", user_id="ian")["results"][0]
     assert result["memory"] == "match me"
     assert result["agent_id"] == "cli"
     assert result["created_at"]
-    assert "data" not in result and "text_lemmatized" not in result
+    # Internal plumbing must not leak into results.
+    assert "data" not in result
+    assert "text_lemmatized" not in result
+    assert "content_fp" not in result
 
 
 def test_keyword_search_no_match_returns_empty(monkeypatch):
     _patch_keyword(monkeypatch, [_point("1", "nothing relevant")])
     assert keyword_search("zzz", user_id="ian") == {"results": []}
+
+
+def test_keyword_search_empty_query_matches_nothing(monkeypatch):
+    fake = _patch_keyword(monkeypatch, [_point("1", "anything")])
+    assert keyword_search("   ", user_id="ian") == {"results": []}
+    fake.vector_store.list.assert_not_called()  # short-circuits before scanning
 
 
 def test_keyword_search_fails_open(monkeypatch):

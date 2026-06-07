@@ -1,8 +1,10 @@
 import hashlib
 import json
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from app.config import Settings, get_settings
+from app.ranking import _parse_timestamp
 
 
 def _provider_config(model: str, api_key: str | None) -> dict:
@@ -132,9 +134,18 @@ DEFAULT_KEYWORD_SCAN_LIMIT = 5000
 def _point_to_result(point) -> dict:
     """Shape a Qdrant point into a search-result dict (memory text + payload)."""
     payload = dict(getattr(point, "payload", None) or {})
-    payload.pop("text_lemmatized", None)  # internal BM25 helper — noise in results
+    # Drop internal plumbing that shouldn't surface in results.
+    payload.pop("text_lemmatized", None)  # BM25 helper
+    payload.pop("content_fp", None)  # dedup fingerprint
     memory_text = payload.pop("data", None)
     return {"id": getattr(point, "id", None), "memory": memory_text, **payload}
+
+
+def _point_recency(point) -> datetime:
+    """Sort key for keyword results: updated_at (preferred) or created_at, parsed."""
+    payload = getattr(point, "payload", None) or {}
+    ts = _parse_timestamp(payload.get("updated_at")) or _parse_timestamp(payload.get("created_at"))
+    return ts or datetime.min.replace(tzinfo=UTC)
 
 
 def keyword_search(
@@ -151,8 +162,12 @@ def keyword_search(
     store's payload listing and matches `query` as a case-insensitive substring
     of each memory's text, returning the most recent matches first. Scoped by
     `user_id` only (it spans the whole user store, like the MCP read tools).
-    Fail-open: any store error returns no results.
+    An empty/whitespace query matches nothing. Fail-open: any store error
+    returns no results.
     """
+    needle = query.strip().casefold()
+    if not needle:
+        return {"results": []}
     memory = get_memory()
     filters = {"user_id": user_id} if user_id else None
     try:
@@ -160,16 +175,11 @@ def keyword_search(
     except Exception:
         return {"results": []}
     points = result[0] if isinstance(result, tuple) else result
-    needle = query.casefold()
     matches = [
         point
         for point in (points or [])
         if isinstance((getattr(point, "payload", None) or {}).get("data"), str)
         and needle in point.payload["data"].casefold()
     ]
-    # ISO-8601 UTC timestamps sort chronologically as plain strings; newest first.
-    matches.sort(
-        key=lambda p: (getattr(p, "payload", None) or {}).get("created_at", ""),
-        reverse=True,
-    )
+    matches.sort(key=_point_recency, reverse=True)  # most recently touched first
     return {"results": [_point_to_result(p) for p in matches[:limit]]}

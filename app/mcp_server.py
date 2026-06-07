@@ -49,6 +49,8 @@ def build_mcp() -> FastMCP:
         toward more recently created or updated memories. Leave it at 0 for pure
         relevance; raise it (e.g. 0.3) when the user asks what is *latest*.
         """
+        if mode not in ("semantic", "keyword"):
+            raise ValueError(f"mode must be 'semantic' or 'keyword', got {mode!r}")
         if mode == "keyword":
             return memory_mod.keyword_search(query, user_id=default_user, limit=limit)
         results = memory.search(query=query, filters={"user_id": default_user}, top_k=limit)

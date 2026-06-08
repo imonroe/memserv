@@ -1,7 +1,7 @@
 # mem0-server
 
 A self-hosted [mem0](https://github.com/mem0ai/mem0) memory server that exposes one shared
-memory store over **two protocols from a single process**:
+memory store over **two protocols from a single process**:  (trigger)
 
 - **REST** (`/api/v1/memories…`) for scripts, n8n, curl, and custom agents.
 - **Streamable HTTP MCP** (`/mcp/`) for Claude Code, Claude Desktop, Claude.ai web, and Cowork.

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import threading
 from datetime import UTC, datetime
 from functools import lru_cache
 
@@ -152,34 +153,42 @@ def _point_recency(point) -> datetime:
 # None = not attempted yet, True = created/confirmed, False = creation failed
 # (old Qdrant, permissions) — don't retry on every search, use the scan path.
 _keyword_index_state: bool | None = None
+_keyword_index_lock = threading.Lock()
 
 
 def reset_keyword_index_state() -> None:
     """Forget whether the keyword index exists (test hook / ops escape hatch)."""
     global _keyword_index_state
-    _keyword_index_state = None
+    with _keyword_index_lock:
+        _keyword_index_state = None
 
 
 def _ensure_keyword_index(memory) -> bool:
-    """Idempotently create the full-text index on `data`; cache the outcome."""
-    global _keyword_index_state
-    if _keyword_index_state is None:
-        from qdrant_client import models
+    """Idempotently create the full-text index on `data`; cache the outcome.
 
-        try:
-            memory.vector_store.client.create_payload_index(
-                collection_name=memory.vector_store.collection_name,
-                field_name="data",
-                field_schema=models.TextIndexParams(
-                    type=models.TextIndexType.TEXT,
-                    tokenizer=models.TokenizerType.WORD,
-                    lowercase=True,
-                ),
-            )
-            _keyword_index_state = True
-        except Exception:
-            _keyword_index_state = False
-    return _keyword_index_state
+    Locked so concurrent first searches (FastAPI runs sync endpoints in a
+    threadpool) attempt creation exactly once — without it, a transient failure
+    in a racing duplicate attempt could overwrite a successful True with False.
+    """
+    global _keyword_index_state
+    with _keyword_index_lock:
+        if _keyword_index_state is None:
+            from qdrant_client import models
+
+            try:
+                memory.vector_store.client.create_payload_index(
+                    collection_name=memory.vector_store.collection_name,
+                    field_name="data",
+                    field_schema=models.TextIndexParams(
+                        type=models.TextIndexType.TEXT,
+                        tokenizer=models.TokenizerType.WORD,
+                        lowercase=True,
+                    ),
+                )
+                _keyword_index_state = True
+            except Exception:
+                _keyword_index_state = False
+        return _keyword_index_state
 
 
 def _indexed_keyword_points(memory, query: str, filters: dict, scan_limit: int) -> list:

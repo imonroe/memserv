@@ -157,6 +157,9 @@ def _patch_keyword(monkeypatch, points):
 
     fake = MagicMock()
     fake.vector_store.list.return_value = (points, None)
+    # Indexed prefilter finds nothing, so these tests exercise the scan path's
+    # substring/ordering semantics; the indexed path has its own tests below.
+    fake.vector_store.client.scroll.return_value = ([], None)
     monkeypatch.setattr(m, "get_memory", lambda: fake)
     return fake
 
@@ -278,6 +281,20 @@ def test_keyword_search_fails_open(monkeypatch):
     assert keyword_search("x", user_id="ian") == {"results": []}
 
 
+# --- keyword_search indexed path ----------------------------------------------
+
+
+def _patch_indexed(monkeypatch, indexed_points, scanned_points=()):
+    import app.memory as m
+
+    fake = MagicMock()
+    fake.vector_store.collection_name = "test_memories"
+    fake.vector_store.client.scroll.return_value = (list(indexed_points), None)
+    fake.vector_store.list.return_value = (list(scanned_points), None)
+    monkeypatch.setattr(m, "get_memory", lambda: fake)
+    return fake
+
+
 # --- bulk_delete ---------------------------------------------------------------
 
 
@@ -335,6 +352,93 @@ def test_bulk_delete_partial_failure_reports_progress(monkeypatch):
     assert out["error"] == "delete_failed_partway"
     assert out["has_more"] is True  # remainder not attempted; caller re-posts
     assert fake.delete.call_count == 2  # stopped at the failure
+
+
+def test_keyword_search_uses_index_and_skips_full_scan(monkeypatch):
+    from qdrant_client import models
+
+    fake = _patch_indexed(
+        monkeypatch, [_point("1", "Ian uses Philips Hue lights", user_id="ian")]
+    )
+    out = keyword_search("philips", user_id="ian")
+    assert [r["id"] for r in out["results"]] == ["1"]
+    fake.vector_store.list.assert_not_called()  # no full-store transfer
+
+    # The index is created once, on the data field, as a full-text index.
+    fake.vector_store.client.create_payload_index.assert_called_once()
+    _, idx_kwargs = fake.vector_store.client.create_payload_index.call_args
+    assert idx_kwargs["field_name"] == "data"
+    assert idx_kwargs["field_schema"].tokenizer == models.TokenizerType.WORD
+
+    # The scroll filter combines exact-match scoping with the MatchText clause.
+    _, kwargs = fake.vector_store.client.scroll.call_args
+    conditions = kwargs["scroll_filter"].must
+    matches = {c.key: c.match for c in conditions}
+    assert matches["user_id"] == models.MatchValue(value="ian")
+    assert matches["data"] == models.MatchText(text="philips")
+
+
+def test_keyword_index_created_once_across_searches(monkeypatch):
+    fake = _patch_indexed(monkeypatch, [_point("1", "alpha", user_id="ian")])
+    keyword_search("alpha", user_id="ian")
+    keyword_search("alpha", user_id="ian")
+    assert fake.vector_store.client.create_payload_index.call_count == 1
+
+
+def test_keyword_indexed_results_still_substring_verified(monkeypatch):
+    # MatchText is token-based: both tokens present but not contiguous must not
+    # match the substring query.
+    fake = _patch_indexed(
+        monkeypatch, [_point("1", "oat in my milk", user_id="ian")]
+    )
+    out = keyword_search("oat milk", user_id="ian")
+    assert out["results"] == []
+    fake.vector_store.list.assert_called_once()  # fell back to the scan
+
+
+def test_keyword_falls_back_to_scan_for_mid_token_fragment(monkeypatch):
+    # "hil" never token-matches, but the scan still finds it in "Philips".
+    fake = _patch_indexed(
+        monkeypatch,
+        indexed_points=[],
+        scanned_points=[_point("1", "Ian uses Philips Hue lights", user_id="ian")],
+    )
+    out = keyword_search("hil", user_id="ian")
+    assert [r["id"] for r in out["results"]] == ["1"]
+    fake.vector_store.list.assert_called_once()
+
+
+def test_keyword_falls_back_when_index_creation_fails(monkeypatch):
+    fake = _patch_indexed(
+        monkeypatch,
+        indexed_points=[],
+        scanned_points=[_point("1", "alpha", user_id="ian")],
+    )
+    fake.vector_store.client.create_payload_index.side_effect = RuntimeError("old qdrant")
+    out = keyword_search("alpha", user_id="ian")
+    assert [r["id"] for r in out["results"]] == ["1"]
+    fake.vector_store.client.scroll.assert_not_called()
+    # The failed creation is cached: the next search doesn't retry it.
+    keyword_search("alpha", user_id="ian")
+    assert fake.vector_store.client.create_payload_index.call_count == 1
+
+
+def test_keyword_falls_back_when_indexed_query_raises(monkeypatch):
+    fake = _patch_indexed(
+        monkeypatch,
+        indexed_points=[],
+        scanned_points=[_point("1", "alpha", user_id="ian")],
+    )
+    fake.vector_store.client.scroll.side_effect = RuntimeError("scroll broke")
+    out = keyword_search("alpha", user_id="ian")
+    assert [r["id"] for r in out["results"]] == ["1"]
+
+
+def test_keyword_empty_query_touches_nothing(monkeypatch):
+    fake = _patch_indexed(monkeypatch, [])
+    assert keyword_search("   ", user_id="ian") == {"results": []}
+    fake.vector_store.client.create_payload_index.assert_not_called()
+    fake.vector_store.list.assert_not_called()
 
 
 # --- list_paginated -------------------------------------------------------------

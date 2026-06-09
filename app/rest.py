@@ -151,8 +151,8 @@ def delete_bulk(req: BulkDeleteRequest) -> dict:
             detail=(
                 "Provide at least one filter (agent_id, run_id, source, "
                 "confidence, review_status). Deleting the entire store is not "
-                "supported through this endpoint — restore from a backup-less "
-                "state by dropping the Qdrant collection instead."
+                "supported through this endpoint; if you really mean to start "
+                "over, drop the Qdrant collection instead."
             ),
         )
     filters = {**_scope_kwargs(req.user_id, req.agent_id, req.run_id), **prov}

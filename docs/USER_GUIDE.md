@@ -637,10 +637,12 @@ deliberately impossible.
 It is a **dry run by default**: with `"confirm": false` (or omitted) nothing is
 deleted; the response reports the match count and a sample of up to 10 items so
 you can verify the blast radius first. Re-post the same body with
-`"confirm": true` to actually delete. At most 1000 memories are removed per call;
-if `has_more` is `true`, repeat the call until it isn't. Deletions go through
-mem0 (not a raw vector-store filter delete), so each memory's history stays
-consistent.
+`"confirm": true` to actually delete. `matched` and `deleted` are **per call**,
+capped at 1000; if `has_more` is `true`, more memories match than this call
+covered — repeat the call until it's `false`. If a deletion fails partway, the
+response carries `"error": "delete_failed_partway"` with the partial `deleted`
+count; deletes are idempotent, so just re-post. Deletions go through mem0 (not a
+raw vector-store filter delete), so each memory's history stays consistent.
 
 Typical use — undo a bad import run:
 

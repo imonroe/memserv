@@ -235,15 +235,30 @@ def bulk_delete(*, filters: dict, confirm: bool = False, max_delete: int = BULK_
     if not confirm:
         return response
     deleted = 0
+    error: str | None = None
     for point in points:
-        memory.delete(memory_id=point.id)
+        point_id = getattr(point, "id", None)
+        if point_id is None:
+            continue
+        try:
+            memory.delete(memory_id=point_id)
+        except Exception:
+            # Report partial progress instead of losing the response: deletes
+            # are idempotent, so the caller just re-posts until has_more is
+            # false. The traceback is logged below.
+            error = "delete_failed_partway"
+            _log.exception("bulk_delete_item_failed", memory_id=point_id)
+            break
         deleted += 1
     observe_bulk_delete(deleted)
     _log.warning(
         "bulk_delete", filters=filters, matched=len(points), deleted=deleted,
-        has_more=has_more,
+        has_more=has_more, error=error,
     )
     response["deleted"] = deleted
+    if error:
+        response["error"] = error
+        response["has_more"] = True  # the remainder was not attempted
     return response
 
 

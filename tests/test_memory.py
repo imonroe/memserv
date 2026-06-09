@@ -322,3 +322,15 @@ def test_bulk_delete_goes_through_mem0_not_vector_store(monkeypatch):
     bulk_delete(filters={"agent_id": "a"}, confirm=True)
     fake.delete.assert_called_once_with(memory_id="m1")
     fake.vector_store.delete.assert_not_called()
+
+
+def test_bulk_delete_partial_failure_reports_progress(monkeypatch):
+    from app.memory import bulk_delete
+
+    fake = _patch_bulk(monkeypatch, [_point(f"m{i}", "x") for i in range(3)])
+    fake.delete.side_effect = [None, RuntimeError("qdrant hiccup"), None]
+    out = bulk_delete(filters={"agent_id": "a"}, confirm=True)
+    assert out["deleted"] == 1
+    assert out["error"] == "delete_failed_partway"
+    assert out["has_more"] is True  # remainder not attempted; caller re-posts
+    assert fake.delete.call_count == 2  # stopped at the failure

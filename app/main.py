@@ -10,6 +10,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.routing import Route
 
 from app.config import get_settings
+from app.errors import classify_exception
 from app.logging_setup import configure_logging
 from app.mcp_server import build_mcp
 from app.metrics import observe_request
@@ -56,6 +57,9 @@ async def log_requests(request: Request, call_next):
     # The Authorization header is never read here, so tokens are never logged.
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
     structlog.contextvars.bind_contextvars(request_id=request_id)
+    # Also stashed on request.state for the exception handler: by the time it
+    # runs, this middleware's finally block has already cleared the contextvars.
+    request.state.request_id = request_id
     start = time.perf_counter()
     status = 500  # if call_next raises, the request is logged as a 500
     try:
@@ -86,6 +90,29 @@ async def log_requests(request: Request, call_next):
             ms=round(elapsed * 1000, 1),
         )
         structlog.contextvars.clear_contextvars()
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Translate unhandled errors into stable, sanitized JSON.
+
+    Backend (Qdrant/network) failures become 503, model-provider failures 502,
+    everything else a generic 500. The response never includes exception text —
+    it carries the request_id instead, which correlates with the server-side
+    log line holding the full traceback.
+    """
+    status, code, detail = classify_exception(exc)
+    request_id = getattr(request.state, "request_id", None)
+    _log.error(
+        "unhandled_exception",
+        request_id=request_id,
+        error_code=code,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=status,
+        content={"detail": detail, "error": code, "request_id": request_id},
+    )
 
 
 app.include_router(rest_router, prefix="/api/v1")

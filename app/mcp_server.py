@@ -61,19 +61,37 @@ def build_mcp() -> FastMCP:
         """List all stored memories for the user (shared across all agents)."""
         return memory.get_all(filters={"user_id": default_user})
 
+    def _not_found(memory_id: str) -> dict:
+        # MCP tools return a structured error instead of raising, so the model
+        # sees a usable signal rather than an opaque tool exception.
+        return {"error": "not_found", "memory_id": memory_id}
+
     @mcp.tool
     def get_memory(memory_id: str) -> dict:
-        """Fetch a single memory by ID."""
-        return memory.get(memory_id=memory_id)
+        """Fetch a single memory by ID.
+
+        Returns {"error": "not_found", ...} if no memory has that ID.
+        """
+        return memory.get(memory_id=memory_id) or _not_found(memory_id)
 
     @mcp.tool
     def update_memory(memory_id: str, content: str) -> dict:
-        """Replace the content of an existing memory."""
+        """Replace the content of an existing memory.
+
+        Returns {"error": "not_found", ...} if no memory has that ID.
+        """
+        if not memory.get(memory_id=memory_id):
+            return _not_found(memory_id)
         return memory.update(memory_id=memory_id, data=content)
 
     @mcp.tool
     def delete_memory(memory_id: str) -> dict:
-        """Permanently delete a memory."""
+        """Permanently delete a memory.
+
+        Returns {"error": "not_found", ...} if no memory has that ID.
+        """
+        if not memory.get(memory_id=memory_id):
+            return _not_found(memory_id)
         memory.delete(memory_id=memory_id)
         return {"deleted": True, "memory_id": memory_id}
 

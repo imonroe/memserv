@@ -33,7 +33,10 @@ memory_mod.get_memory = lambda: FAKE_MEMORY
 
 @pytest.fixture
 def mem():
-    FAKE_MEMORY.reset_mock()
+    # Full reset: plain reset_mock() keeps return_value/side_effect, which
+    # would leak one test's stubbing (e.g. get -> None, search -> raise) into
+    # every later test.
+    FAKE_MEMORY.reset_mock(return_value=True, side_effect=True)
     # Default: no existing fingerprint, so add_memory()'s dedup check is a no-op
     # and proceeds to call .add(). Tests exercising dedup override this.
     FAKE_MEMORY.vector_store.list.return_value = ([], None)

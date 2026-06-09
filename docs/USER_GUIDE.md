@@ -527,7 +527,25 @@ and drive the same six tools.
 ## REST API reference
 
 All endpoints live under `/api/v1` and require `Authorization: Bearer <MEM0_API_KEY>`. Request and
-response bodies are JSON. `user_id` defaults to `MEM0_DEFAULT_USER_ID` if omitted.
+response bodies are JSON. `user_id` defaults to `MEM0_DEFAULT_USER_ID` if omitted. Response
+schemas are published in the interactive docs at `/docs` (OpenAPI).
+
+### Error responses
+
+Failures return a stable JSON shape:
+
+```json
+{"detail": "human-readable summary", "error": "machine_code", "request_id": "abc123def456"}
+```
+
+| Status | `error` | Meaning |
+|---|---|---|
+| `401` | — | Missing/invalid bearer token (plain `detail` only). |
+| `404` | — | Memory ID does not exist (`GET`/`PUT`/`DELETE` by ID). |
+| `422` | — | Request validation failed (FastAPI's standard shape). |
+| `502` | `upstream_provider_error` | The LLM or embedding provider failed — check provider keys/status. |
+| `503` | `backend_unavailable` | Qdrant is unreachable or erroring — same condition `/healthz` reports. |
+| `500` | `internal_error` | Unexpected failure. The body never contains internals; quote the `request_id` (also settable via an `X-Request-Id` request header) when digging through server logs. |
 
 ### Add a memory — `POST /api/v1/memories`
 
@@ -621,11 +639,11 @@ Returns 404 if the memory does not exist.
 
 ### Update — `PUT /api/v1/memories/{memory_id}`
 
-Body: `{"content": "new text"}`.
+Body: `{"content": "new text"}`. Returns 404 if the memory does not exist.
 
 ### Delete — `DELETE /api/v1/memories/{memory_id}`
 
-Returns `{"deleted": true, "memory_id": "…"}`.
+Returns `{"deleted": true, "memory_id": "…"}`, or 404 if the memory does not exist.
 
 ### History — `GET /api/v1/memories/{memory_id}/history`
 

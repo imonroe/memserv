@@ -31,6 +31,17 @@ memory_mod.get_memory.cache_clear()
 memory_mod.get_memory = lambda: FAKE_MEMORY
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    # Failed-auth counts are keyed by client IP and the TestClient always
+    # connects as "testclient", so limiter state must not leak across tests.
+    from app import ratelimit
+
+    ratelimit.reset_all()
+    yield
+    ratelimit.reset_all()
+
+
 @pytest.fixture
 def mem():
     # Full reset: plain reset_mock() keeps return_value/side_effect, which

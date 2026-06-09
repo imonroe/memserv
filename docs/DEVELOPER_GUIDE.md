@@ -66,9 +66,13 @@ app/
                     keyword_search() is the substring-match fallback behind search mode="keyword":
                     it scans the user's memories via vector_store.list() and matches the query as a
                     case-insensitive substring of the `data` payload (fail-open). drop_expired()
-                    removes results whose provenance `expires_at` is past. The most tweak-prone file.
+                    removes results whose provenance `expires_at` is past. list_paginated()
+                    implements offset paging for list reads: mem0's get_all has no offset, so it
+                    over-fetches offset+limit+1 (capped by MAX_LIST_OFFSET) and slices, using the
+                    extra item as the has_more signal. The most tweak-prone file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
-                    user_id defaulted to MEM0_DEFAULT_USER_ID.
+                    user_id defaulted to MEM0_DEFAULT_USER_ID. list_memories pages (default 50,
+                    max 100 per call) so the whole store is never returned in one response.
   rest.py           REST router under /api/v1 (mounted with prefix in main.py). Pydantic request
                     models, _scope_kwargs() for user/agent/run scoping, _provenance_filters() for
                     the source/confidence/review_status metadata convention, check_qdrant() helper.
@@ -83,6 +87,10 @@ app/
                     openai/anthropic -> 502, else 500) to sanitized JSON via the app-level
                     exception handler in main.py. New mem0 call sites need no wrapping; if a new
                     backend dependency is added, add its exception types to the tuples here.
+  ratelimit.py      Per-IP fixed-window rate limiting of *failed* auth attempts, applied as the
+                    rate_limit_middleware over four surfaces: REST (/api/v1), MCP (/mcp), OAuth
+                    consent (POST /oauth/authorize) and token (/oauth/token). In-process state,
+                    per worker; client_ip() honors X-Forwarded-For when TRUST_FORWARDED_FOR=true.
   metrics.py        Prometheus Counter + Histogram and observe_request().
   logging_setup.py  structlog configuration.
   main.py           Wiring: FastAPI app, request-logging middleware, router include, conditional
@@ -254,6 +262,15 @@ by the **matched route template** (e.g. `/api/v1/memories/{memory_id}`), not the
 label cardinality bounded; unmatched 404s bucket under `__unmatched__`. Under multiple workers,
 `/metrics` aggregates across workers when `PROMETHEUS_MULTIPROC_DIR` is set. The middleware never
 reads the `Authorization` header, so tokens are never logged.
+
+`rate_limit_middleware` (`app/ratelimit.py`) is registered *before* `log_requests` so logging wraps
+it and 429s still get a log line. It counts failed-auth responses (401s; also 400s on
+`/oauth/token`, which is what RFC 6749 returns for guessed codes) per client IP per surface, and
+rejects an over-limit IP with 429 + `Retry-After` before the request reaches auth. Two metrics
+track it: `auth_failures_total{surface}` and `rate_limited_requests_total{surface}` — a spike in
+either is a brute-force signal. State is in-process and per worker by design (single-user service;
+no shared Redis). Tests must not leak limiter state: `tests/conftest.py` has an autouse fixture
+calling `ratelimit.reset_all()`.
 
 ## CI and deployment
 

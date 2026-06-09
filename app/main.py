@@ -14,6 +14,7 @@ from app.errors import classify_exception
 from app.logging_setup import configure_logging
 from app.mcp_server import build_mcp
 from app.metrics import observe_request
+from app.ratelimit import rate_limit_middleware
 from app.rest import check_qdrant
 from app.rest import router as rest_router
 
@@ -50,6 +51,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="mem0 Memory Server", version="1.0.0", lifespan=lifespan)
+
+# Registered before log_requests so logging wraps it (later-registered
+# middleware is outermost): rate-limited 429s still get a request log line and
+# a latency observation.
+app.middleware("http")(rate_limit_middleware)
 
 
 @app.middleware("http")

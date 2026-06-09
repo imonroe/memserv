@@ -22,6 +22,11 @@ def test_classifies_backend_errors_as_503():
         httpx.ConnectError("refused"),
         httpx.ReadTimeout("slow"),
         ResponseHandlingException("qdrant glitch"),
+        httpx.HTTPStatusError(
+            "503",
+            request=httpx.Request("GET", "http://q"),
+            response=httpx.Response(503),
+        ),
         ConnectionError("reset"),
         TimeoutError(),
     ):

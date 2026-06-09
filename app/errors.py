@@ -35,6 +35,9 @@ _BACKEND_ERRORS = (
     UnexpectedResponse,
     httpx.TransportError,
     httpx.TimeoutException,
+    # Raised if a client path surfaces a raw non-2xx instead of wrapping it in
+    # the qdrant exceptions above.
+    httpx.HTTPStatusError,
     ConnectionError,
     TimeoutError,
 )

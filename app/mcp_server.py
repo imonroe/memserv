@@ -72,7 +72,10 @@ def build_mcp() -> FastMCP:
 
         Returns {"error": "not_found", ...} if no memory has that ID.
         """
-        return memory.get(memory_id=memory_id) or _not_found(memory_id)
+        result = memory.get(memory_id=memory_id)
+        # Explicit None check: a falsy-but-present result (e.g. {}) is a found
+        # memory, not a miss.
+        return _not_found(memory_id) if result is None else result
 
     @mcp.tool
     def update_memory(memory_id: str, content: str) -> dict:

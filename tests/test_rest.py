@@ -83,7 +83,8 @@ def test_list(app_instance, mem, auth_header):
     _, kwargs = mem.get_all.call_args
     assert kwargs["filters"]["agent_id"] == "n8n"
     assert kwargs["filters"]["user_id"] == "default-user"
-    assert kwargs["top_k"] == 50  # default list limit must reach mem0 as top_k
+    # Default limit 50, offset 0: one extra item is fetched to signal has_more.
+    assert kwargs["top_k"] == 51
 
 
 def test_search_default_does_not_rerank(app_instance, mem, auth_header):
@@ -245,6 +246,64 @@ def test_list_limit_out_of_range_rejected(app_instance, mem, auth_header):
     c = _client(app_instance)
     assert c.get("/api/v1/memories?limit=0", headers=auth_header).status_code == 422
     assert c.get("/api/v1/memories?limit=1000", headers=auth_header).status_code == 422
+
+
+def _numbered_results(n):
+    return {"results": [{"id": f"m{i}", "memory": f"fact {i}"} for i in range(n)]}
+
+
+def test_list_paginates_and_reports_has_more(app_instance, mem, auth_header):
+    # Store holds 5 items; ask for the middle page of 2.
+    mem.get_all.return_value = _numbered_results(5)
+    c = _client(app_instance)
+    resp = c.get("/api/v1/memories?limit=2&offset=2", headers=auth_header)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [i["id"] for i in body["results"]] == ["m2", "m3"]
+    assert body["pagination"] == {"limit": 2, "offset": 2, "has_more": True}
+    _, kwargs = mem.get_all.call_args
+    assert kwargs["top_k"] == 5  # offset + limit + 1
+
+
+def test_list_last_page_has_more_false(app_instance, mem, auth_header):
+    mem.get_all.return_value = _numbered_results(5)
+    c = _client(app_instance)
+    body = c.get("/api/v1/memories?limit=10&offset=0", headers=auth_header).json()
+    assert len(body["results"]) == 5
+    assert body["pagination"]["has_more"] is False
+
+
+def test_list_offset_past_end_is_empty(app_instance, mem, auth_header):
+    mem.get_all.return_value = _numbered_results(3)
+    c = _client(app_instance)
+    body = c.get("/api/v1/memories?limit=10&offset=5", headers=auth_header).json()
+    assert body["results"] == []
+    assert body["pagination"]["has_more"] is False
+
+
+def test_list_offset_out_of_range_rejected(app_instance, mem, auth_header):
+    c = _client(app_instance)
+    assert c.get("/api/v1/memories?offset=-1", headers=auth_header).status_code == 422
+    assert (
+        c.get("/api/v1/memories?offset=10001", headers=auth_header).status_code == 422
+    )
+
+
+def test_list_exclude_expired_filters_page_not_has_more(app_instance, mem, auth_header):
+    mem.get_all.return_value = {
+        "results": [
+            {"id": "stale", "metadata": {"expires_at": "2000-01-01T00:00:00+00:00"}},
+            {"id": "fresh", "metadata": {}},
+            {"id": "extra", "metadata": {}},
+        ]
+    }
+    c = _client(app_instance)
+    body = c.get(
+        "/api/v1/memories?exclude_expired=true&limit=2&offset=0", headers=auth_header
+    ).json()
+    # Expiry filtering happens after slicing: the page shrinks, has_more doesn't.
+    assert [i["id"] for i in body["results"]] == ["fresh"]
+    assert body["pagination"]["has_more"] is True
 
 
 def test_delete(app_instance, mem, auth_header):

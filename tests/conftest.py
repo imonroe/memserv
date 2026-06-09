@@ -40,6 +40,17 @@ def _reset_keyword_index_state():
     memory_mod.reset_keyword_index_state()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    # Failed-auth counts are keyed by client IP and the TestClient always
+    # connects as "testclient", so limiter state must not leak across tests.
+    from app import ratelimit
+
+    ratelimit.reset_all()
+    yield
+    ratelimit.reset_all()
+
+
 @pytest.fixture
 def mem():
     FAKE_MEMORY.reset_mock()

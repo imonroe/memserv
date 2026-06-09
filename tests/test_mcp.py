@@ -108,6 +108,29 @@ async def test_list_memories_tool(mcp, mem):
         await client.call_tool("list_memories", {})
     _, kwargs = mem.get_all.call_args
     assert kwargs["filters"] == {"user_id": "default-user"}
+    # Default page of 50 plus the extra has_more sentinel — never the whole store.
+    assert kwargs["top_k"] == 51
+
+
+async def test_list_memories_tool_pagination(mcp, mem):
+    mem.get_all.return_value = {
+        "results": [{"id": f"m{i}", "memory": f"fact {i}"} for i in range(4)]
+    }
+    async with Client(mcp) as client:
+        result = await client.call_tool("list_memories", {"limit": 2, "offset": 1})
+    body = result.data
+    assert [i["id"] for i in body["results"]] == ["m1", "m2"]
+    assert body["pagination"] == {"limit": 2, "offset": 1, "has_more": True}
+    _, kwargs = mem.get_all.call_args
+    assert kwargs["top_k"] == 4  # offset + limit + 1
+
+
+async def test_list_memories_tool_rejects_bad_paging(mcp, mem):
+    async with Client(mcp) as client:
+        for args in ({"limit": 0}, {"limit": 101}, {"offset": -1}, {"offset": 10001}):
+            with pytest.raises(ToolError):
+                await client.call_tool("list_memories", args)
+    mem.get_all.assert_not_called()
 
 
 async def test_delete_memory_tool(mcp, mem):

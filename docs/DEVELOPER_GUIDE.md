@@ -75,7 +75,12 @@ app/
                     is past. list_paginated() implements offset paging for list reads: mem0's
                     get_all has no offset, so it over-fetches offset+limit+1 (capped by
                     MAX_LIST_OFFSET) and slices, using the extra item as the has_more signal.
-                    The most tweak-prone file.
+                    bulk_delete() backs POST /memories/delete_bulk: dry-run by default, capped
+                    at BULK_DELETE_MAX per call (has_more signals the caller to loop), and
+                    deletes through Memory.delete per ID — never a raw vector-store filter
+                    delete — so mem0's history stays consistent. Deliberately NOT exposed as
+                    an MCP tool: a destructive filter-delete is an operator action, not
+                    something a model should reach for. The most tweak-prone file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
                     user_id defaulted to MEM0_DEFAULT_USER_ID. list_memories pages (default 50,
                     max 100 per call) so the whole store is never returned in one response.

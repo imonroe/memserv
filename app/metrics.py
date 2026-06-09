@@ -14,6 +14,11 @@ REQUEST_LATENCY = Histogram(
 )
 
 
+BULK_DELETED = Counter(
+    "memories_bulk_deleted_total",
+    "Memories removed via the bulk delete endpoint.",
+)
+
 # Brute-force signal: failed auth attempts and rate-limited rejections, by
 # auth surface ("rest", "mcp", "oauth_consent", "oauth_token").
 AUTH_FAILURES = Counter(
@@ -31,6 +36,10 @@ RATE_LIMITED = Counter(
 def observe_request(method: str, path: str, status: int, duration_s: float) -> None:
     REQUEST_COUNT.labels(method=method, path=path, status=str(status)).inc()
     REQUEST_LATENCY.labels(method=method, path=path).observe(duration_s)
+
+
+def observe_bulk_delete(count: int) -> None:
+    BULK_DELETED.inc(count)
 
 
 def observe_auth_failure(surface: str) -> None:

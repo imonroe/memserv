@@ -681,6 +681,42 @@ Body: `{"content": "new text"}`. Returns 404 if the memory does not exist.
 
 Returns `{"deleted": true, "memory_id": "…"}`, or 404 if the memory does not exist.
 
+### Bulk delete — `POST /api/v1/memories/delete_bulk`
+
+Deletes every memory matching exact-match filters: `agent_id`, `run_id`, `source`,
+`confidence`, `review_status` (plus optional `user_id`). **At least one filter
+besides `user_id` is required** — wiping the whole store through this endpoint is
+deliberately impossible.
+
+It is a **dry run by default**: with `"confirm": false` (or omitted) nothing is
+deleted; the response reports the match count and a sample of up to 10 items so
+you can verify the blast radius first. Re-post the same body with
+`"confirm": true` to actually delete. `matched` and `deleted` are **per call**,
+capped at 1000; if `has_more` is `true`, more memories match than this call
+covered — repeat the call until it's `false`. If a deletion fails partway, the
+response carries `"error": "delete_failed_partway"` with the partial `deleted`
+count; deletes are idempotent, so just re-post. Deletions go through mem0 (not a
+raw vector-store filter delete), so each memory's history stays consistent.
+
+Typical use — undo a bad import run:
+
+```bash
+# 1. Dry run: how much would this delete?
+curl -X POST https://mem0.your-domain.com/api/v1/memories/delete_bulk \
+  -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
+  -d '{"source": "import:chatgpt"}'
+# -> {"matched": 412, "deleted": 0, "dry_run": true, "has_more": false, "sample": [...]}
+
+# 2. Looks right - confirm:
+curl -X POST https://mem0.your-domain.com/api/v1/memories/delete_bulk \
+  -H "Authorization: Bearer $MEM0_API_KEY" -H "Content-Type: application/json" \
+  -d '{"source": "import:chatgpt", "confirm": true}'
+# -> {"matched": 412, "deleted": 412, "dry_run": false, "has_more": false, ...}
+```
+
+There is intentionally **no MCP equivalent** — a destructive filter-delete is an
+operator/script action, not something a connected agent should be able to reach for.
+
 ### History — `GET /api/v1/memories/{memory_id}/history`
 
 Returns the change history for a memory.

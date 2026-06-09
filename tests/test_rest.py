@@ -372,6 +372,82 @@ def test_healthz_unreachable(app_instance):
     assert resp.json()["ok"] is False
 
 
+def _bulk(c, auth_header, body):
+    return c.post("/api/v1/memories/delete_bulk", json=body, headers=auth_header)
+
+
+def test_bulk_delete_requires_a_filter(app_instance, mem, auth_header):
+    c = _client(app_instance)
+    # No filter at all, and user_id alone, must both be rejected.
+    assert _bulk(c, auth_header, {}).status_code == 422
+    assert _bulk(c, auth_header, {"user_id": "default-user"}).status_code == 422
+    assert _bulk(c, auth_header, {"confirm": True}).status_code == 422
+    mem.vector_store.list.assert_not_called()
+    mem.delete.assert_not_called()
+
+
+def test_bulk_delete_dry_run_by_default(app_instance, mem, auth_header):
+    from types import SimpleNamespace
+
+    points = [
+        SimpleNamespace(id=f"m{i}", payload={"data": f"fact {i}"}) for i in range(3)
+    ]
+    mem.vector_store.list.return_value = (points, None)
+    c = _client(app_instance)
+    resp = _bulk(c, auth_header, {"agent_id": "capture:telegram"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["dry_run"] is True
+    assert body["matched"] == 3
+    assert body["deleted"] == 0
+    assert body["has_more"] is False
+    assert body["sample"][0] == {"id": "m0", "memory": "fact 0"}
+    mem.delete.assert_not_called()
+    _, kwargs = mem.vector_store.list.call_args
+    assert kwargs["filters"] == {
+        "user_id": "default-user",
+        "agent_id": "capture:telegram",
+    }
+
+
+def test_bulk_delete_confirm_deletes_each_id(app_instance, mem, auth_header):
+    from types import SimpleNamespace
+
+    points = [SimpleNamespace(id=f"m{i}", payload={"data": "x"}) for i in range(3)]
+    mem.vector_store.list.return_value = (points, None)
+    c = _client(app_instance)
+    body = _bulk(
+        c, auth_header, {"source": "import:chatgpt", "confirm": True}
+    ).json()
+    assert body["dry_run"] is False
+    assert body["deleted"] == 3
+    assert [c.kwargs["memory_id"] for c in mem.delete.call_args_list] == [
+        "m0",
+        "m1",
+        "m2",
+    ]
+
+
+def test_bulk_delete_composes_provenance_and_agent_filters(
+    app_instance, mem, auth_header
+):
+    mem.vector_store.list.return_value = ([], None)
+    c = _client(app_instance)
+    resp = _bulk(
+        c,
+        auth_header,
+        {"agent_id": "n8n", "review_status": "rejected", "confidence": "low"},
+    )
+    assert resp.status_code == 200
+    _, kwargs = mem.vector_store.list.call_args
+    assert kwargs["filters"] == {
+        "user_id": "default-user",
+        "agent_id": "n8n",
+        "review_status": "rejected",
+        "confidence": "low",
+    }
+
+
 def test_update_missing_memory_404(app_instance, mem, auth_header):
     mem.get.return_value = None
     c = _client(app_instance)

@@ -275,3 +275,50 @@ def test_keyword_search_fails_open(monkeypatch):
     fake.vector_store.list.side_effect = RuntimeError("qdrant down")
     monkeypatch.setattr(m, "get_memory", lambda: fake)
     assert keyword_search("x", user_id="ian") == {"results": []}
+
+
+# --- bulk_delete ---------------------------------------------------------------
+
+
+def _patch_bulk(monkeypatch, points):
+    import app.memory as m
+
+    fake = MagicMock()
+    fake.vector_store.list.return_value = (points, None)
+    monkeypatch.setattr(m, "get_memory", lambda: fake)
+    return fake
+
+
+def test_bulk_delete_caps_and_reports_has_more(monkeypatch):
+    from app.memory import bulk_delete
+
+    points = [_point(f"m{i}", f"fact {i}") for i in range(5)]
+    fake = _patch_bulk(monkeypatch, points)
+    out = bulk_delete(filters={"agent_id": "a"}, confirm=True, max_delete=3)
+    assert out["matched"] == 3
+    assert out["deleted"] == 3
+    assert out["has_more"] is True
+    assert fake.delete.call_count == 3
+    # One extra point is fetched purely as the has_more signal.
+    _, kwargs = fake.vector_store.list.call_args
+    assert kwargs["top_k"] == 4
+
+
+def test_bulk_delete_sample_capped_at_ten(monkeypatch):
+    from app.memory import bulk_delete
+
+    points = [_point(f"m{i}", f"fact {i}") for i in range(15)]
+    _patch_bulk(monkeypatch, points)
+    out = bulk_delete(filters={"agent_id": "a"})
+    assert out["matched"] == 15
+    assert len(out["sample"]) == 10
+    assert out["dry_run"] is True
+
+
+def test_bulk_delete_goes_through_mem0_not_vector_store(monkeypatch):
+    from app.memory import bulk_delete
+
+    fake = _patch_bulk(monkeypatch, [_point("m1", "x")])
+    bulk_delete(filters={"agent_id": "a"}, confirm=True)
+    fake.delete.assert_called_once_with(memory_id="m1")
+    fake.vector_store.delete.assert_not_called()

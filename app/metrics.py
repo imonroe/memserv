@@ -14,6 +14,16 @@ REQUEST_LATENCY = Histogram(
 )
 
 
+BULK_DELETED = Counter(
+    "memories_bulk_deleted_total",
+    "Memories removed via the bulk delete endpoint.",
+)
+
+
 def observe_request(method: str, path: str, status: int, duration_s: float) -> None:
     REQUEST_COUNT.labels(method=method, path=path, status=str(status)).inc()
     REQUEST_LATENCY.labels(method=method, path=path).observe(duration_s)
+
+
+def observe_bulk_delete(count: int) -> None:
+    BULK_DELETED.inc(count)

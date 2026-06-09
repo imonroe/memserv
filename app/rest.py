@@ -55,6 +55,19 @@ class UpdateMemoryRequest(BaseModel):
     content: str
 
 
+class BulkDeleteRequest(BaseModel):
+    # Exact-match filters; at least one besides user_id is required, so a bare
+    # POST can never wipe the whole store.
+    agent_id: str | None = None
+    run_id: str | None = None
+    source: str | None = None
+    confidence: str | None = None
+    review_status: str | None = None
+    user_id: str | None = None
+    # False (default) = dry run: count + sample only, nothing deleted.
+    confirm: bool = False
+
+
 def _provenance_filters(
     source: str | None, confidence: str | None, review_status: str | None
 ) -> dict:
@@ -122,6 +135,28 @@ def list_memories(
     }
     results = memory.get_all(filters=filters, top_k=limit)
     return memory_mod.drop_expired(results) if exclude_expired else results
+
+
+@router.post("/memories/delete_bulk")
+def delete_bulk(req: BulkDeleteRequest) -> dict:
+    """Delete every memory matching the given filters; dry-run by default.
+
+    A POST (not DELETE) for the same reason search is: it takes a JSON body,
+    and DELETE request bodies are ambiguous across proxies/clients.
+    """
+    prov = _provenance_filters(req.source, req.confidence, req.review_status)
+    if not (req.agent_id or req.run_id or prov):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Provide at least one filter (agent_id, run_id, source, "
+                "confidence, review_status). Deleting the entire store is not "
+                "supported through this endpoint — restore from a backup-less "
+                "state by dropping the Qdrant collection instead."
+            ),
+        )
+    filters = {**_scope_kwargs(req.user_id, req.agent_id, req.run_id), **prov}
+    return memory_mod.bulk_delete(filters=filters, confirm=req.confirm)
 
 
 @router.get("/memories/{memory_id}")

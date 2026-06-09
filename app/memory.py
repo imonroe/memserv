@@ -3,8 +3,13 @@ import json
 from datetime import UTC, datetime
 from functools import lru_cache
 
+import structlog
+
 from app.config import Settings, get_settings
+from app.metrics import observe_bulk_delete
 from app.ranking import _parse_timestamp
+
+_log = structlog.get_logger()
 
 
 def _provider_config(model: str, api_key: str | None) -> dict:
@@ -189,6 +194,57 @@ def keyword_search(
     ]
     matches.sort(key=_point_recency, reverse=True)  # most recently touched first
     return {"results": [_point_to_result(p) for p in matches[:limit]]}
+
+
+# Hard ceiling on deletions per bulk_delete call. Bounds request duration (each
+# delete is a mem0 round-trip) so a huge purge can't outlive the reverse proxy's
+# timeout; callers loop on has_more instead.
+BULK_DELETE_MAX = 1000
+
+
+def bulk_delete(*, filters: dict, confirm: bool = False, max_delete: int = BULK_DELETE_MAX) -> dict:
+    """Delete (or, by default, just count) every memory matching exact filters.
+
+    Dry-run by default: with confirm=False nothing is deleted; the response
+    reports how many memories matched and a small sample so the caller can
+    verify the blast radius before re-posting with confirm=true.
+
+    Deletions go through mem0's Memory.delete per ID — never a raw vector-store
+    filter delete — so mem0's history/bookkeeping stays consistent. At most
+    `max_delete` memories are removed per call; `has_more` tells the caller to
+    loop. The caller is responsible for ensuring `filters` is meaningfully
+    scoped (see the REST endpoint).
+    """
+    memory = get_memory()
+    result = memory.vector_store.list(filters=filters, top_k=max_delete + 1)
+    points = result[0] if isinstance(result, tuple) else result
+    points = list(points or [])
+    has_more = len(points) > max_delete
+    points = points[:max_delete]
+    sample = [
+        {"id": item["id"], "memory": item.get("memory")}
+        for item in (_point_to_result(p) for p in points[:10])
+    ]
+    response = {
+        "matched": len(points),
+        "deleted": 0,
+        "dry_run": not confirm,
+        "has_more": has_more,
+        "sample": sample,
+    }
+    if not confirm:
+        return response
+    deleted = 0
+    for point in points:
+        memory.delete(memory_id=point.id)
+        deleted += 1
+    observe_bulk_delete(deleted)
+    _log.warning(
+        "bulk_delete", filters=filters, matched=len(points), deleted=deleted,
+        has_more=has_more,
+    )
+    response["deleted"] = deleted
+    return response
 
 
 def _result_expiry(item) -> datetime | None:

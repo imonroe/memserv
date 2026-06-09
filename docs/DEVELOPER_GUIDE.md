@@ -66,7 +66,13 @@ app/
                     keyword_search() is the substring-match fallback behind search mode="keyword":
                     it scans the user's memories via vector_store.list() and matches the query as a
                     case-insensitive substring of the `data` payload (fail-open). drop_expired()
-                    removes results whose provenance `expires_at` is past. The most tweak-prone file.
+                    removes results whose provenance `expires_at` is past. bulk_delete() backs
+                    POST /memories/delete_bulk: dry-run by default, capped at BULK_DELETE_MAX
+                    per call (has_more signals the caller to loop), and deletes through
+                    Memory.delete per ID — never a raw vector-store filter delete — so mem0's
+                    history stays consistent. Deliberately NOT exposed as an MCP tool: a
+                    destructive filter-delete is an operator action, not something a model
+                    should reach for. The most tweak-prone file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
                     user_id defaulted to MEM0_DEFAULT_USER_ID.
   rest.py           REST router under /api/v1 (mounted with prefix in main.py). Pydantic request

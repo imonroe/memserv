@@ -154,7 +154,25 @@ runs, or set these in the CapRover app's **App Configs** panel for production.
 | `PUBLIC_BASE_URL` | yes | — | Public URL, e.g. `https://mem0.your-domain.com`. Used in OAuth metadata. |
 | `OAUTH_SIGNING_KEY` | no | empty | PEM RSA private key. **Setting this enables Phase 2 OAuth.** Leave blank for Phase 1. |
 | `OAUTH_ALLOWED_REDIRECT_URIS` | no | claude.ai + cowork + chatgpt callbacks | Comma-separated allowlist for OAuth redirect URIs. An entry ending in `*` is a **path-prefix** match locked to an exact scheme + host — it must be a full `scheme://host/path/` prefix (e.g. `https://chatgpt.com/connector/oauth/*`). Host-only or bare wildcards (`https://chatgpt.com*`, `https://*`, `*`) are **ignored**, so a misconfigured entry can't match lookalike hosts like `chatgpt.com.evil.com`. |
+| `TRUST_FORWARDED_FOR` | no | `true` | Use the first `X-Forwarded-For` hop as the client IP for rate limiting. Correct behind CapRover's nginx; set to `false` if the app is exposed directly (no reverse proxy), where the header would be attacker-controlled. |
+| `RATE_LIMIT_AUTH_FAILURES` | no | `10` | Failed bearer-token attempts (REST + MCP, per surface) allowed per IP per window before 429s. `0` disables. |
+| `RATE_LIMIT_AUTH_WINDOW_SECONDS` | no | `60` | Window for the above. |
+| `RATE_LIMIT_CONSENT_FAILURES` | no | `5` | Failed OAuth consent (wrong API key) attempts per IP per window. `0` disables. |
+| `RATE_LIMIT_CONSENT_WINDOW_SECONDS` | no | `300` | Window for the above. |
+| `RATE_LIMIT_TOKEN_FAILURES` | no | `10` | Failed `/oauth/token` exchanges per IP per window. `0` disables. |
+| `RATE_LIMIT_TOKEN_WINDOW_SECONDS` | no | `60` | Window for the above. |
 | `LOG_LEVEL` | no | `INFO` | Log level. |
+
+#### Rate limiting
+
+Failed authentication attempts are rate-limited per client IP to slow down brute-force guessing of
+`MEM0_API_KEY` (and OAuth codes). Only **failures** count — normal authenticated traffic is never
+throttled — but once an IP crosses the limit, *all* its requests to that surface (even with the
+correct token) get **HTTP 429** with a `Retry-After` header until the window expires. The four
+surfaces (REST `/api/v1/...`, MCP `/mcp`, OAuth consent, OAuth token) are limited independently.
+`/healthz` and `/metrics` are never limited. Limits are per uvicorn worker (the default image runs
+2 workers), so the effective ceiling is about twice the configured value. If you lock yourself out
+during testing, wait out the window or restart the app.
 
 ### Phases
 

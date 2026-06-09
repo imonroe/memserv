@@ -79,6 +79,10 @@ app/
                     wiring, build_verifier() selecting Phase 1 vs Phase 2.
   oauth.py          Phase 2 OAuth 2.1 + PKCE + DCR endpoints, JWT issuance, JWKS, AS/PR metadata.
   oauth_store.py    SQLite store for OAuth clients, auth codes, refresh tokens (/app/data/oauth.db).
+  ratelimit.py      Per-IP fixed-window rate limiting of *failed* auth attempts, applied as the
+                    rate_limit_middleware over four surfaces: REST (/api/v1), MCP (/mcp), OAuth
+                    consent (POST /oauth/authorize) and token (/oauth/token). In-process state,
+                    per worker; client_ip() honors X-Forwarded-For when TRUST_FORWARDED_FOR=true.
   metrics.py        Prometheus Counter + Histogram and observe_request().
   logging_setup.py  structlog configuration.
   main.py           Wiring: FastAPI app, request-logging middleware, router include, conditional
@@ -250,6 +254,15 @@ by the **matched route template** (e.g. `/api/v1/memories/{memory_id}`), not the
 label cardinality bounded; unmatched 404s bucket under `__unmatched__`. Under multiple workers,
 `/metrics` aggregates across workers when `PROMETHEUS_MULTIPROC_DIR` is set. The middleware never
 reads the `Authorization` header, so tokens are never logged.
+
+`rate_limit_middleware` (`app/ratelimit.py`) is registered *before* `log_requests` so logging wraps
+it and 429s still get a log line. It counts failed-auth responses (401s; also 400s on
+`/oauth/token`, which is what RFC 6749 returns for guessed codes) per client IP per surface, and
+rejects an over-limit IP with 429 + `Retry-After` before the request reaches auth. Two metrics
+track it: `auth_failures_total{surface}` and `rate_limited_requests_total{surface}` — a spike in
+either is a brute-force signal. State is in-process and per worker by design (single-user service;
+no shared Redis). Tests must not leak limiter state: `tests/conftest.py` has an autouse fixture
+calling `ratelimit.reset_all()`.
 
 ## CI and deployment
 

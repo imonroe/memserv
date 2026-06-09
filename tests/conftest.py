@@ -31,6 +31,15 @@ memory_mod.get_memory.cache_clear()
 memory_mod.get_memory = lambda: FAKE_MEMORY
 
 
+@pytest.fixture(autouse=True)
+def _reset_keyword_index_state():
+    # The keyword-index existence check is cached module-wide; tests must not
+    # inherit another test's cached outcome.
+    memory_mod.reset_keyword_index_state()
+    yield
+    memory_mod.reset_keyword_index_state()
+
+
 @pytest.fixture
 def mem():
     FAKE_MEMORY.reset_mock()

@@ -591,10 +591,17 @@ curl -X POST https://mem0.your-domain.com/api/v1/memories/search \
 ```
 
 The default is `"mode": "semantic"`. The MCP `search_memories` tool accepts the
-same `mode` argument. Keyword mode spans the whole user store and scans up to a
-few thousand of the most recent memories per query — ample for a personal store;
-it's a literal-match fallback, not a replacement for semantic retrieval.
+same `mode` argument. Keyword mode spans the whole user store; it's a
+literal-match fallback, not a replacement for semantic retrieval.
 (`recency_weight` applies to semantic mode only.)
+
+Under the hood, keyword matching is pushed down to Qdrant via a full-text payload
+index that the server creates automatically on first use (no setup or maintenance
+needed). Whole-word queries are answered from the index; queries that only match
+*inside* a word (e.g. `hil` matching `Philips`) transparently fall back to a scan
+of up to a few thousand memories, so results are the same as before — exact,
+case-insensitive substring matches, most recent first. If your Qdrant version
+can't create the index, everything still works via the scan path.
 
 ### List memories — `GET /api/v1/memories`
 

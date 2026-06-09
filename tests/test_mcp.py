@@ -137,3 +137,28 @@ async def test_delete_memory_tool(mcp, mem):
     async with Client(mcp) as client:
         await client.call_tool("delete_memory", {"memory_id": "xyz"})
     mem.delete.assert_called_once_with(memory_id="xyz")
+
+
+async def test_get_memory_tool_not_found(mcp, mem):
+    mem.get.return_value = None
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_memory", {"memory_id": "ghost"})
+    assert result.data == {"error": "not_found", "memory_id": "ghost"}
+
+
+async def test_update_memory_tool_not_found(mcp, mem):
+    mem.get.return_value = None
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "update_memory", {"memory_id": "ghost", "content": "x"}
+        )
+    assert result.data == {"error": "not_found", "memory_id": "ghost"}
+    mem.update.assert_not_called()
+
+
+async def test_delete_memory_tool_not_found(mcp, mem):
+    mem.get.return_value = None
+    async with Client(mcp) as client:
+        result = await client.call_tool("delete_memory", {"memory_id": "ghost"})
+    assert result.data == {"error": "not_found", "memory_id": "ghost"}
+    mem.delete.assert_not_called()

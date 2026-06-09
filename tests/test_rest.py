@@ -367,3 +367,31 @@ def test_healthz_unreachable(app_instance):
     resp = c.get("/healthz")
     assert resp.status_code == 503
     assert resp.json()["ok"] is False
+
+
+def test_update_missing_memory_404(app_instance, mem, auth_header):
+    mem.get.return_value = None
+    c = _client(app_instance)
+    resp = c.put(
+        "/api/v1/memories/missing", json={"content": "x"}, headers=auth_header
+    )
+    assert resp.status_code == 404
+    mem.update.assert_not_called()
+
+
+def test_delete_missing_memory_404(app_instance, mem, auth_header):
+    mem.get.return_value = None
+    c = _client(app_instance)
+    resp = c.delete("/api/v1/memories/missing", headers=auth_header)
+    assert resp.status_code == 404
+    mem.delete.assert_not_called()
+
+
+def test_response_passes_through_unknown_mem0_fields(app_instance, mem, auth_header):
+    # extra="allow" + exclude_unset: unexpected mem0 fields survive, and fields
+    # mem0 didn't send are not fabricated as nulls.
+    mem.get.return_value = {"id": "abc", "memory": "hi", "brand_new_field": 7}
+    c = _client(app_instance)
+    body = c.get("/api/v1/memories/abc", headers=auth_header).json()
+    assert body == {"id": "abc", "memory": "hi", "brand_new_field": 7}
+    assert "agent_id" not in body

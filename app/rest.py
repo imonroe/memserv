@@ -2,7 +2,7 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app import memory as memory_mod
 from app.auth import require_bearer
@@ -55,6 +55,59 @@ class UpdateMemoryRequest(BaseModel):
     content: str
 
 
+# --- Response models ---------------------------------------------------------
+# These document and validate the *stable* parts of mem0's payloads without
+# freezing them: extra="allow" passes unexpected mem0 fields through untouched,
+# and every route sets response_model_exclude_unset=True so fields mem0 didn't
+# send aren't fabricated as nulls — the wire format stays exactly what mem0
+# returned, but /docs and client generators get a real schema.
+
+
+class MemoryItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str | None = None
+    memory: str | None = None
+    hash: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    user_id: str | None = None
+    agent_id: str | None = None
+    run_id: str | None = None
+    score: float | None = None
+    metadata: dict | None = None
+
+
+class MemoryResults(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    results: list[MemoryItem] = Field(default_factory=list)
+
+
+class AddMemoryResponse(MemoryResults):
+    # Set when the add was skipped because identical content already exists.
+    deduplicated: bool | None = None
+    memory_id: str | None = None
+
+
+class UpdateResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    # mem0's update() returns a success message, not the updated item.
+    message: str | None = None
+
+
+class DeleteResponse(BaseModel):
+    deleted: bool
+    memory_id: str
+
+
+class HistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    history: list = Field(default_factory=list)
+
+
 def _provenance_filters(
     source: str | None, confidence: str | None, review_status: str | None
 ) -> dict:
@@ -75,7 +128,9 @@ def _scope_kwargs(
     return kwargs
 
 
-@router.post("/memories")
+@router.post(
+    "/memories", response_model=AddMemoryResponse, response_model_exclude_unset=True
+)
 def add_memory(req: AddMemoryRequest) -> dict:
     if not req.content and not req.messages:
         raise HTTPException(status_code=422, detail="Provide either 'content' or 'messages'")
@@ -86,7 +141,9 @@ def add_memory(req: AddMemoryRequest) -> dict:
     return memory_mod.add_memory(payload, dedup=req.dedup, **kwargs)
 
 
-@router.post("/memories/search")
+@router.post(
+    "/memories/search", response_model=MemoryResults, response_model_exclude_unset=True
+)
 def search_memories(req: SearchRequest) -> dict:
     prov = _provenance_filters(req.source, req.confidence, req.review_status)
     if req.mode == "keyword":
@@ -104,7 +161,9 @@ def search_memories(req: SearchRequest) -> dict:
     return memory_mod.drop_expired(results) if req.exclude_expired else results
 
 
-@router.get("/memories")
+@router.get(
+    "/memories", response_model=MemoryResults, response_model_exclude_unset=True
+)
 def list_memories(
     user_id: str | None = None,
     agent_id: str | None = None,
@@ -126,29 +185,48 @@ def list_memories(
     return memory_mod.drop_expired(results) if exclude_expired else results
 
 
-@router.get("/memories/{memory_id}")
-def get_memory_by_id(memory_id: str) -> dict:
-    memory = memory_mod.get_memory()
+def _get_or_404(memory, memory_id: str) -> dict:
     result = memory.get(memory_id=memory_id)
     if not result:
         raise HTTPException(status_code=404, detail="Memory not found")
     return result
 
 
-@router.put("/memories/{memory_id}")
+@router.get(
+    "/memories/{memory_id}",
+    response_model=MemoryItem,
+    response_model_exclude_unset=True,
+)
+def get_memory_by_id(memory_id: str) -> dict:
+    return _get_or_404(memory_mod.get_memory(), memory_id)
+
+
+@router.put(
+    "/memories/{memory_id}",
+    response_model=UpdateResponse,
+    response_model_exclude_unset=True,
+)
 def update_memory(memory_id: str, req: UpdateMemoryRequest) -> dict:
     memory = memory_mod.get_memory()
+    # Depending on the mem0 version, update() on a missing id either raises or
+    # silently no-ops; pre-checking makes it a 404 like GET.
+    _get_or_404(memory, memory_id)
     return memory.update(memory_id=memory_id, data=req.content)
 
 
-@router.delete("/memories/{memory_id}")
+@router.delete("/memories/{memory_id}", response_model=DeleteResponse)
 def delete_memory(memory_id: str) -> dict:
     memory = memory_mod.get_memory()
+    _get_or_404(memory, memory_id)
     memory.delete(memory_id=memory_id)
     return {"deleted": True, "memory_id": memory_id}
 
 
-@router.get("/memories/{memory_id}/history")
+@router.get(
+    "/memories/{memory_id}/history",
+    response_model=HistoryResponse,
+    response_model_exclude_unset=True,
+)
 def memory_history(memory_id: str) -> dict:
     memory = memory_mod.get_memory()
     return {"history": memory.history(memory_id=memory_id)}

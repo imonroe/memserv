@@ -89,6 +89,10 @@ app/
                     wiring, build_verifier() selecting Phase 1 vs Phase 2.
   oauth.py          Phase 2 OAuth 2.1 + PKCE + DCR endpoints, JWT issuance, JWKS, AS/PR metadata.
   oauth_store.py    SQLite store for OAuth clients, auth codes, refresh tokens (/app/data/oauth.db).
+  errors.py         classify_exception(): maps concrete SDK exceptions (qdrant/httpx -> 503,
+                    openai/anthropic -> 502, else 500) to sanitized JSON via the app-level
+                    exception handler in main.py. New mem0 call sites need no wrapping; if a new
+                    backend dependency is added, add its exception types to the tuples here.
   ratelimit.py      Per-IP fixed-window rate limiting of *failed* auth attempts, applied as the
                     rate_limit_middleware over four surfaces: REST (/api/v1), MCP (/mcp), OAuth
                     consent (POST /oauth/authorize) and token (/oauth/token). In-process state,

@@ -10,6 +10,7 @@ from app.memory import (
     content_fingerprint,
     drop_expired,
     keyword_search,
+    list_paginated,
 )
 
 EXPIRY_NOW = datetime(2026, 6, 7, tzinfo=UTC)
@@ -275,3 +276,29 @@ def test_keyword_search_fails_open(monkeypatch):
     fake.vector_store.list.side_effect = RuntimeError("qdrant down")
     monkeypatch.setattr(m, "get_memory", lambda: fake)
     assert keyword_search("x", user_id="ian") == {"results": []}
+
+
+def test_list_paginated_shapes_and_slices(mem):
+    mem.get_all.return_value = {
+        "results": [{"id": f"m{i}"} for i in range(7)]
+    }
+    out = list_paginated(filters={"user_id": "u"}, limit=3, offset=3)
+    assert [i["id"] for i in out["results"]] == ["m3", "m4", "m5"]
+    assert out["pagination"] == {"limit": 3, "offset": 3, "has_more": True}
+    _, kwargs = mem.get_all.call_args
+    assert kwargs == {"filters": {"user_id": "u"}, "top_k": 7}
+
+
+def test_list_paginated_tolerates_bare_list_return(mem):
+    # Some mem0 versions/stores return a bare list instead of {"results": [...]}.
+    mem.get_all.return_value = [{"id": "a"}, {"id": "b"}]
+    out = list_paginated(filters={"user_id": "u"}, limit=10, offset=0)
+    assert [i["id"] for i in out["results"]] == ["a", "b"]
+    assert out["pagination"]["has_more"] is False
+
+
+def test_list_paginated_tolerates_none_results(mem):
+    mem.get_all.return_value = {"results": None}
+    out = list_paginated(filters={"user_id": "u"}, limit=10, offset=0)
+    assert out["results"] == []
+    assert out["pagination"]["has_more"] is False

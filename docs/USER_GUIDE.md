@@ -598,13 +598,24 @@ it's a literal-match fallback, not a replacement for semantic retrieval.
 
 ### List memories — `GET /api/v1/memories`
 
-Query params: `agent_id`, `run_id`, `user_id`, `limit` (1–100, default 50), plus the
-provenance/review filters `source`, `confidence`, `review_status` (exact match), and
-`exclude_expired` (drop memories whose `expires_at` is in the past). See
+Query params: `agent_id`, `run_id`, `user_id`, `limit` (1–100, default 50), `offset`
+(0–10000, default 0), plus the provenance/review filters `source`, `confidence`,
+`review_status` (exact match), and `exclude_expired` (drop memories whose
+`expires_at` is in the past). See
 [Provenance and review metadata](#provenance-and-review-metadata-convention).
+
+The response carries a `pagination` object — `{"limit": …, "offset": …, "has_more": …}` —
+so the full store can be enumerated by advancing `offset` by `limit` while
+`has_more` is `true`. Ordering is stable (by internal ID) but **not** chronological.
+With `exclude_expired=true`, expired items are dropped *after* the page is cut, so a
+page may contain fewer than `limit` items while `has_more` is still `true`.
 
 ```bash
 curl https://mem0.your-domain.com/api/v1/memories?limit=20 \
+  -H "Authorization: Bearer $MEM0_API_KEY"
+
+# Next page:
+curl "https://mem0.your-domain.com/api/v1/memories?limit=20&offset=20" \
   -H "Authorization: Bearer $MEM0_API_KEY"
 
 # Only approved, non-expired memories imported from ChatGPT:

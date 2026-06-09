@@ -127,13 +127,15 @@ def list_memories(
     review_status: str | None = None,
     exclude_expired: bool = False,
     limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=memory_mod.MAX_LIST_OFFSET),
 ) -> dict:
-    memory = memory_mod.get_memory()
     filters = {
         **_scope_kwargs(user_id, agent_id, run_id),
         **_provenance_filters(source, confidence, review_status),
     }
-    results = memory.get_all(filters=filters, top_k=limit)
+    results = memory_mod.list_paginated(filters=filters, limit=limit, offset=offset)
+    # Expiry filtering happens after pagination, so a page may carry fewer than
+    # `limit` items; `pagination.has_more` still reflects the unfiltered store.
     return memory_mod.drop_expired(results) if exclude_expired else results
 
 

@@ -57,9 +57,24 @@ def build_mcp() -> FastMCP:
         return rerank_by_recency(results, recency_weight)
 
     @mcp.tool
-    def list_memories() -> dict:
-        """List all stored memories for the user (shared across all agents)."""
-        return memory.get_all(filters={"user_id": default_user})
+    def list_memories(limit: int = 50, offset: int = 0) -> dict:
+        """List stored memories for the user (shared across all agents), paged.
+
+        Returns at most `limit` memories (1-100, default 50) starting at
+        `offset`. The response's `pagination.has_more` tells you whether
+        another page exists — call again with `offset` advanced by `limit`
+        to continue. Prefer `search_memories` over paging through everything
+        when you're looking for something specific.
+        """
+        if not 1 <= limit <= 100:
+            raise ValueError(f"limit must be between 1 and 100, got {limit}")
+        if not 0 <= offset <= memory_mod.MAX_LIST_OFFSET:
+            raise ValueError(
+                f"offset must be between 0 and {memory_mod.MAX_LIST_OFFSET}, got {offset}"
+            )
+        return memory_mod.list_paginated(
+            filters={"user_id": default_user}, limit=limit, offset=offset
+        )
 
     @mcp.tool
     def get_memory(memory_id: str) -> dict:

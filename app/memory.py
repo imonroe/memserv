@@ -262,6 +262,34 @@ def bulk_delete(*, filters: dict, confirm: bool = False, max_delete: int = BULK_
     return response
 
 
+# Upper bound on the list-pagination offset. Offset paging is emulated by
+# over-fetching offset+limit+1 items and slicing (mem0's get_all has no native
+# offset), so the bound caps the per-request fetch size. 10k is far beyond a
+# single-user store's realistic page depth.
+MAX_LIST_OFFSET = 10_000
+
+
+def list_paginated(*, filters: dict, limit: int, offset: int = 0) -> dict:
+    """List memories one page at a time, preserving mem0's result shaping.
+
+    Fetches `offset + limit + 1` items via mem0's get_all (which has no offset
+    parameter) and slices: the extra item only signals `has_more`, so a page is
+    never silently truncated at the store's default cap. Ordering comes from
+    the vector store's scroll (stable by point ID, not chronological) — pages
+    are consistent across calls as long as the store isn't being written
+    concurrently.
+    """
+    memory = get_memory()
+    raw = memory.get_all(filters=filters, top_k=offset + limit + 1)
+    items = raw.get("results") if isinstance(raw, dict) else raw
+    items = list(items or [])
+    has_more = len(items) > offset + limit
+    return {
+        "results": items[offset : offset + limit],
+        "pagination": {"limit": limit, "offset": offset, "has_more": has_more},
+    }
+
+
 def _result_expiry(item) -> datetime | None:
     """Parse an `expires_at` from a result item (top-level or nested metadata)."""
     if not isinstance(item, dict):

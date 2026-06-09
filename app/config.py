@@ -42,6 +42,18 @@ class Settings(BaseSettings):
         "https://chatgpt.com/connector/oauth/*"
     )
 
+    # Rate limiting (brute-force protection on auth surfaces). Only *failed*
+    # attempts count; an IP over the limit is rejected with 429 until the
+    # window expires. Limits are per uvicorn worker. Set a *_failures value
+    # below 1 to disable limiting on that surface.
+    trust_forwarded_for: bool = True
+    rate_limit_auth_failures: int = 10
+    rate_limit_auth_window_seconds: float = 60.0
+    rate_limit_consent_failures: int = 5
+    rate_limit_consent_window_seconds: float = 300.0
+    rate_limit_token_failures: int = 10
+    rate_limit_token_window_seconds: float = 60.0
+
     # Misc
     log_level: str = "INFO"
 

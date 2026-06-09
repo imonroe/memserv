@@ -19,6 +19,19 @@ BULK_DELETED = Counter(
     "Memories removed via the bulk delete endpoint.",
 )
 
+# Brute-force signal: failed auth attempts and rate-limited rejections, by
+# auth surface ("rest", "mcp", "oauth_consent", "oauth_token").
+AUTH_FAILURES = Counter(
+    "auth_failures_total",
+    "Failed authentication attempts.",
+    ["surface"],
+)
+RATE_LIMITED = Counter(
+    "rate_limited_requests_total",
+    "Requests rejected by the auth rate limiter.",
+    ["surface"],
+)
+
 
 def observe_request(method: str, path: str, status: int, duration_s: float) -> None:
     REQUEST_COUNT.labels(method=method, path=path, status=str(status)).inc()
@@ -27,3 +40,11 @@ def observe_request(method: str, path: str, status: int, duration_s: float) -> N
 
 def observe_bulk_delete(count: int) -> None:
     BULK_DELETED.inc(count)
+
+
+def observe_auth_failure(surface: str) -> None:
+    AUTH_FAILURES.labels(surface=surface).inc()
+
+
+def observe_rate_limited(surface: str) -> None:
+    RATE_LIMITED.labels(surface=surface).inc()

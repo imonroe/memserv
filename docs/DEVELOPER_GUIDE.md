@@ -63,13 +63,19 @@ app/
                     cheap content-fingerprint dedup: it SHA-256s the normalized raw input, stores
                     it in the `content_fp` payload field, and skips the LLM extraction if a memory
                     with that fingerprint already exists (fail-open — a lookup error just proceeds).
-                    keyword_search() is the substring-match fallback behind search mode="keyword":
-                    it scans the user's memories via vector_store.list() and matches the query as a
-                    case-insensitive substring of the `data` payload (fail-open). drop_expired()
-                    removes results whose provenance `expires_at` is past. list_paginated()
-                    implements offset paging for list reads: mem0's get_all has no offset, so it
-                    over-fetches offset+limit+1 (capped by MAX_LIST_OFFSET) and slices, using the
-                    extra item as the has_more signal. The most tweak-prone file.
+                    keyword_search() backs search mode="keyword" in two stages: a Qdrant
+                    full-text index on the `data` field (created lazily+idempotently on first
+                    use; outcome cached in _keyword_index_state) prefilters candidates server-
+                    side via MatchText, then the original case-insensitive substring check
+                    verifies them (MatchText is token-based; substring semantics are the
+                    contract). If the index is unavailable, the query fails, or nothing
+                    survives verification (mid-token fragments never token-match), it falls
+                    back to the legacy vector_store.list() scan, so recall never regresses
+                    (fail-open). drop_expired() removes results whose provenance `expires_at`
+                    is past. list_paginated() implements offset paging for list reads: mem0's
+                    get_all has no offset, so it over-fetches offset+limit+1 (capped by
+                    MAX_LIST_OFFSET) and slices, using the extra item as the has_more signal.
+                    The most tweak-prone file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
                     user_id defaulted to MEM0_DEFAULT_USER_ID. list_memories pages (default 50,
                     max 100 per call) so the whole store is never returned in one response.

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import threading
 from datetime import UTC, datetime
 from functools import lru_cache
 
@@ -148,6 +149,93 @@ def _point_recency(point) -> datetime:
     return ts or datetime.min.replace(tzinfo=UTC)
 
 
+# Tri-state cache for the full-text index on the `data` payload field:
+# None = not attempted yet, True = created/confirmed, False = creation failed
+# (old Qdrant, permissions) — don't retry on every search, use the scan path.
+_keyword_index_state: bool | None = None
+_keyword_index_lock = threading.Lock()
+
+
+def reset_keyword_index_state() -> None:
+    """Forget whether the keyword index exists (test hook / ops escape hatch)."""
+    global _keyword_index_state
+    with _keyword_index_lock:
+        _keyword_index_state = None
+
+
+def _ensure_keyword_index(memory) -> bool:
+    """Idempotently create the full-text index on `data`; cache the outcome.
+
+    Locked so concurrent first searches (FastAPI runs sync endpoints in a
+    threadpool) attempt creation exactly once — without it, a transient failure
+    in a racing duplicate attempt could overwrite a successful True with False.
+    """
+    global _keyword_index_state
+    with _keyword_index_lock:
+        if _keyword_index_state is None:
+            from qdrant_client import models
+
+            try:
+                memory.vector_store.client.create_payload_index(
+                    collection_name=memory.vector_store.collection_name,
+                    field_name="data",
+                    field_schema=models.TextIndexParams(
+                        type=models.TextIndexType.TEXT,
+                        tokenizer=models.TokenizerType.WORD,
+                        lowercase=True,
+                    ),
+                )
+                _keyword_index_state = True
+            except Exception:
+                _keyword_index_state = False
+        return _keyword_index_state
+
+
+def _indexed_keyword_points(memory, query: str, filters: dict, scan_limit: int) -> list:
+    """Fetch candidate points server-side via the full-text index.
+
+    Qdrant's MatchText requires every (lowercased) query token to appear in the
+    document, so this transfers only plausible candidates instead of the whole
+    store. It is a prefilter, not the final answer — substring verification
+    still happens in keyword_search().
+    """
+    from qdrant_client import models
+
+    conditions = [
+        models.FieldCondition(key=key, match=models.MatchValue(value=value))
+        for key, value in filters.items()
+    ]
+    conditions.append(
+        models.FieldCondition(key="data", match=models.MatchText(text=query))
+    )
+    points, _ = memory.vector_store.client.scroll(
+        collection_name=memory.vector_store.collection_name,
+        scroll_filter=models.Filter(must=conditions),
+        limit=scan_limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    return points or []
+
+
+def _scanned_points(memory, filters: dict, scan_limit: int) -> list:
+    """Legacy path: pull up to scan_limit payloads and match client-side."""
+    result = memory.vector_store.list(filters=filters or None, top_k=scan_limit)
+    points = result[0] if isinstance(result, tuple) else result
+    return list(points or [])
+
+
+def _substring_matches(points: list, needle: str, limit: int) -> list[dict]:
+    matches = [
+        point
+        for point in points
+        if isinstance((getattr(point, "payload", None) or {}).get("data"), str)
+        and needle in point.payload["data"].casefold()
+    ]
+    matches.sort(key=_point_recency, reverse=True)  # most recently touched first
+    return [_point_to_result(p) for p in matches[:limit]]
+
+
 def keyword_search(
     query: str,
     *,
@@ -159,13 +247,22 @@ def keyword_search(
     """Case-insensitive substring search over stored memory text.
 
     A literal-match fallback for terms semantic search misses (names, IDs, URLs,
-    rare tokens). Scans up to `scan_limit` of the user's memories via the vector
-    store's payload listing and matches `query` as a case-insensitive substring
-    of each memory's text, returning the most recent matches first. Scoped by
-    `user_id` only (it spans the whole user store, like the MCP read tools);
-    `extra_filters` adds exact-match payload conditions (e.g. provenance fields).
-    An empty/whitespace query matches nothing. Fail-open: any store error
-    returns no results.
+    rare tokens). Matching is done in two stages so the store isn't shipped over
+    the network on every query:
+
+    1. Indexed prefilter: a full-text payload index on `data` (created lazily,
+       idempotent) lets Qdrant return only points containing every query token.
+    2. Substring verification: the original case-insensitive substring check
+       runs over the candidates, preserving exact semantics (e.g. phrase
+       contiguity).
+
+    If the index is unavailable, the indexed query fails, or it yields no
+    surviving matches (a mid-token fragment like "hil" never token-matches),
+    the legacy full scan of up to `scan_limit` payloads runs instead, so recall
+    is never worse than before. Scoped by `user_id` only (it spans the whole
+    user store, like the MCP read tools); `extra_filters` adds exact-match
+    payload conditions (e.g. provenance fields). An empty/whitespace query
+    matches nothing. Fail-open: any store error returns no results.
     """
     needle = query.strip().casefold()
     if not needle:
@@ -176,19 +273,21 @@ def keyword_search(
         filters["user_id"] = user_id
     if extra_filters:
         filters.update(extra_filters)
+    if _ensure_keyword_index(memory):
+        try:
+            candidates = _indexed_keyword_points(
+                memory, query.strip(), filters, scan_limit
+            )
+        except Exception:
+            candidates = []
+        results = _substring_matches(candidates, needle, limit)
+        if results:
+            return {"results": results}
     try:
-        result = memory.vector_store.list(filters=filters or None, top_k=scan_limit)
+        points = _scanned_points(memory, filters, scan_limit)
     except Exception:
         return {"results": []}
-    points = result[0] if isinstance(result, tuple) else result
-    matches = [
-        point
-        for point in (points or [])
-        if isinstance((getattr(point, "payload", None) or {}).get("data"), str)
-        and needle in point.payload["data"].casefold()
-    ]
-    matches.sort(key=_point_recency, reverse=True)  # most recently touched first
-    return {"results": [_point_to_result(p) for p in matches[:limit]]}
+    return {"results": _substring_matches(points, needle, limit)}
 
 
 # Upper bound on the list-pagination offset. Offset paging is emulated by

@@ -136,6 +136,9 @@ def test_search_keyword_mode(app_instance, mem, auth_header):
 
     point = SimpleNamespace(id="1", payload={"data": "the Philips hub", "created_at": "2026-06-01T00:00:00+00:00"})  # noqa: E501
     mem.vector_store.list.return_value = ([point], None)
+    # Indexed prefilter finds nothing -> exercises the scan fallback explicitly
+    # (rather than via a MagicMock unpack failure).
+    mem.vector_store.client.scroll.return_value = ([], None)
     c = _client(app_instance)
     resp = c.post(
         "/api/v1/memories/search",

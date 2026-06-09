@@ -66,9 +66,13 @@ app/
                     keyword_search() is the substring-match fallback behind search mode="keyword":
                     it scans the user's memories via vector_store.list() and matches the query as a
                     case-insensitive substring of the `data` payload (fail-open). drop_expired()
-                    removes results whose provenance `expires_at` is past. The most tweak-prone file.
+                    removes results whose provenance `expires_at` is past. list_paginated()
+                    implements offset paging for list reads: mem0's get_all has no offset, so it
+                    over-fetches offset+limit+1 (capped by MAX_LIST_OFFSET) and slices, using the
+                    extra item as the has_more signal. The most tweak-prone file.
   mcp_server.py     build_mcp(): the six MCP tools, each thinly wrapping a mem0 op with
-                    user_id defaulted to MEM0_DEFAULT_USER_ID.
+                    user_id defaulted to MEM0_DEFAULT_USER_ID. list_memories pages (default 50,
+                    max 100 per call) so the whole store is never returned in one response.
   rest.py           REST router under /api/v1 (mounted with prefix in main.py). Pydantic request
                     models, _scope_kwargs() for user/agent/run scoping, _provenance_filters() for
                     the source/confidence/review_status metadata convention, check_qdrant() helper.

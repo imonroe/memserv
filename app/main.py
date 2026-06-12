@@ -1,4 +1,6 @@
+import faulthandler
 import os
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -21,6 +23,26 @@ from app.rest import router as rest_router
 configure_logging()
 settings = get_settings()
 _log = structlog.get_logger()
+
+# Dump all thread stacks to stderr on a fatal C-level signal (SIGSEGV/SIGABRT/
+# SIGBUS/SIGFPE/SIGILL) before the process dies. The MCP tools run in anyio
+# worker threads; a native fault there otherwise kills the uvicorn worker with
+# no traceback at all.
+faulthandler.enable(all_threads=True)
+
+
+def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
+    # Uncaught exceptions in worker threads otherwise go to Python's default
+    # hook on raw stderr, outside structured logging — easy to lose in
+    # container log pipelines.
+    _log.error(
+        "thread_uncaught_exception",
+        thread=getattr(args.thread, "name", None),
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+    )
+
+
+threading.excepthook = _thread_excepthook
 
 mcp = build_mcp()
 # stateless_http=True is required to avoid session-not-found errors with >1 worker.
@@ -47,6 +69,26 @@ async def lifespan(app: FastAPI):
     # FastMCP's lifespan MUST run, or the first MCP request raises
     # "Task group is not initialized".
     async with mcp_app.lifespan(app):
+        # Pay the cold first-search cost (embedder client setup, mem0's
+        # spaCy/fastembed probe, first embedding round-trip) at boot, in a
+        # thread, so it never lands on a user's request — cold workers were
+        # dying mid-first-search and timing out MCP clients. If that death is
+        # deterministic, this turns it into a loud boot-time log line instead.
+        try:
+            import anyio
+
+            import app.memory as memory_mod
+
+            await anyio.to_thread.run_sync(
+                lambda: memory_mod.get_memory().search(
+                    query="warmup",
+                    filters={"user_id": settings.mem0_default_user_id},
+                    top_k=1,
+                )
+            )
+            _log.info("search_warmup_complete")
+        except Exception:
+            _log.exception("search_warmup_failed")
         yield
 
 

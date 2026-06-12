@@ -64,6 +64,12 @@ mcp_app.router.routes.append(
 )
 
 
+# Upper bound on the startup warmup search. Generous vs. a warm search (~0.4s)
+# to cover cold-start work (client setup, mem0's spaCy/fastembed probe), but
+# bounded so a hung network call can't block the worker from serving.
+WARMUP_TIMEOUT_S = 30
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # FastMCP's lifespan MUST run, or the first MCP request raises
@@ -79,14 +85,21 @@ async def lifespan(app: FastAPI):
 
             import app.memory as memory_mod
 
-            await anyio.to_thread.run_sync(
-                lambda: memory_mod.get_memory().search(
-                    query="warmup",
-                    filters={"user_id": settings.mem0_default_user_id},
-                    top_k=1,
+            # Bounded so a hung embedder/Qdrant call can't stall worker startup
+            # forever; abandon_on_cancel lets startup proceed while the stuck
+            # thread is left to finish (or die) on its own.
+            with anyio.fail_after(WARMUP_TIMEOUT_S):
+                await anyio.to_thread.run_sync(
+                    lambda: memory_mod.get_memory().search(
+                        query="warmup",
+                        filters={"user_id": settings.mem0_default_user_id},
+                        top_k=1,
+                    ),
+                    abandon_on_cancel=True,
                 )
-            )
             _log.info("search_warmup_complete")
+        except TimeoutError:
+            _log.error("search_warmup_timeout", timeout_s=WARMUP_TIMEOUT_S)
         except Exception:
             _log.exception("search_warmup_failed")
         yield

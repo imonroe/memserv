@@ -24,6 +24,10 @@ def configure_logging() -> None:
             structlog.processors.add_log_level,
             _redact,
             structlog.processors.TimeStamper(fmt="iso"),
+            # Render exc_info (tuple, exception instance, or True) into a
+            # formatted "exception" traceback string — JSONRenderer alone would
+            # serialize the raw tuple, losing the stack trace.
+            structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
         ],
     )

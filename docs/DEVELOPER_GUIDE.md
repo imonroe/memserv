@@ -35,7 +35,11 @@ also enumerated in `CLAUDE.md`.)
    instance or split the protocols into separate services.
 2. **FastMCP's lifespan must be passed to FastAPI's constructor.** In `app/main.py`, the FastAPI
    `lifespan` context manager wraps `mcp_app.lifespan(app)`. Without this, the first MCP request
-   raises `Task group is not initialized`.
+   raises `Task group is not initialized`. The lifespan also runs a **warm-up search** at boot (a
+   `top_k=1` semantic search in a worker thread) so the cold-start cost of the first search —
+   embedder client setup, mem0's spaCy/fastembed probe, the first embedding round-trip — never
+   lands on a user request. Warm-up failures are logged (`search_warmup_failed`) but don't block
+   startup.
 3. **`stateless_http=True` on `mcp.http_app()`** is required because the container runs uvicorn with
    `--workers 2`. Stateful sessions would produce session-not-found errors across workers.
 4. **The MCP app is mounted at the root (`app.mount("/", mcp_app)`), registered LAST**, with the

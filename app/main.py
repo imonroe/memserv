@@ -1,4 +1,6 @@
+import faulthandler
 import os
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -22,6 +24,26 @@ configure_logging()
 settings = get_settings()
 _log = structlog.get_logger()
 
+# Dump all thread stacks to stderr on a fatal C-level signal (SIGSEGV/SIGABRT/
+# SIGBUS/SIGFPE/SIGILL) before the process dies. The MCP tools run in anyio
+# worker threads; a native fault there otherwise kills the uvicorn worker with
+# no traceback at all.
+faulthandler.enable(all_threads=True)
+
+
+def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
+    # Uncaught exceptions in worker threads otherwise go to Python's default
+    # hook on raw stderr, outside structured logging — easy to lose in
+    # container log pipelines.
+    _log.error(
+        "thread_uncaught_exception",
+        thread=getattr(args.thread, "name", None),
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+    )
+
+
+threading.excepthook = _thread_excepthook
+
 mcp = build_mcp()
 # stateless_http=True is required to avoid session-not-found errors with >1 worker.
 # The endpoint is served at /mcp (not /mcp/): mounting at the root below, plus the
@@ -42,11 +64,44 @@ mcp_app.router.routes.append(
 )
 
 
+# Upper bound on the startup warmup search. Generous vs. a warm search (~0.4s)
+# to cover cold-start work (client setup, mem0's spaCy/fastembed probe), but
+# bounded so a hung network call can't block the worker from serving.
+WARMUP_TIMEOUT_S = 30
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # FastMCP's lifespan MUST run, or the first MCP request raises
     # "Task group is not initialized".
     async with mcp_app.lifespan(app):
+        # Pay the cold first-search cost (embedder client setup, mem0's
+        # spaCy/fastembed probe, first embedding round-trip) at boot, in a
+        # thread, so it never lands on a user's request — cold workers were
+        # dying mid-first-search and timing out MCP clients. If that death is
+        # deterministic, this turns it into a loud boot-time log line instead.
+        try:
+            import anyio
+
+            import app.memory as memory_mod
+
+            # Bounded so a hung embedder/Qdrant call can't stall worker startup
+            # forever; abandon_on_cancel lets startup proceed while the stuck
+            # thread is left to finish (or die) on its own.
+            with anyio.fail_after(WARMUP_TIMEOUT_S):
+                await anyio.to_thread.run_sync(
+                    lambda: memory_mod.get_memory().search(
+                        query="warmup",
+                        filters={"user_id": settings.mem0_default_user_id},
+                        top_k=1,
+                    ),
+                    abandon_on_cancel=True,
+                )
+            _log.info("search_warmup_complete")
+        except TimeoutError:
+            _log.error("search_warmup_timeout", timeout_s=WARMUP_TIMEOUT_S)
+        except Exception:
+            _log.exception("search_warmup_failed")
         yield
 
 

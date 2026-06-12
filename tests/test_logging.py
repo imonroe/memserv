@@ -23,6 +23,25 @@ def test_request_is_logged_without_token(app_instance):
     assert secret not in json.dumps(logs)
 
 
+def test_exception_traceback_scrubbed_of_secret_values():
+    # format_exc_info renders tracebacks as a flat "exception" string, which
+    # key-based redaction can't inspect — secret values echoed in an exception
+    # message must be scrubbed before rendering.
+    from app.logging_setup import _scrub_exception
+
+    event = {
+        "event": "search_warmup_failed",
+        "exception": (
+            "Traceback (most recent call last):\n"
+            "AuthError: bad key 'test-bearer-token' for qdrant key test-qdrant-key"
+        ),
+    }
+    out = _scrub_exception(None, None, event)
+    assert "test-bearer-token" not in out["exception"]
+    assert "test-qdrant-key" not in out["exception"]
+    assert "***" in out["exception"]
+
+
 def test_request_logged_as_500_when_handler_raises(app_instance):
     import structlog
     from fastapi.routing import APIRoute

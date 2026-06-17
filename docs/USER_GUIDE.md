@@ -10,6 +10,10 @@ connect clients to it, and use it day to day. If you want to work on the code it
 - [Configuration reference](#configuration-reference)
 - [Choosing a deployment method](#choosing-a-deployment-method)
 - [Deploying with Docker Compose](#deploying-with-docker-compose)
+- [Putting it behind a reverse proxy (HTTPS)](#putting-it-behind-a-reverse-proxy-https)
+  - [Nginx Proxy Manager](#nginx-proxy-manager)
+  - [Caddy](#caddy)
+  - [Verifying the proxy](#verifying-the-proxy)
 - [Deploying to CapRover](#deploying-to-caprover)
   - [1. Deploy the main app](#1-deploy-the-main-app-mem0-server)
   - [2. Deploy the backup app](#2-deploy-the-backup-app-mem0-backup)
@@ -242,10 +246,12 @@ need an external Qdrant for this method.
    ```
 
 **HTTPS and public access.** The compose stack serves plain HTTP on port 8000. MCP clients and
-OAuth require HTTPS, so for anything beyond local use put the app behind a reverse proxy
-(Caddy, nginx, Traefik) that terminates TLS, and set `PUBLIC_BASE_URL` in `.env` to the public
-HTTPS URL (e.g. `https://mem0.your-domain.com`). For Phase 2 OAuth, also set `OAUTH_SIGNING_KEY`
-(see [Phases](#phases)).
+OAuth require HTTPS, so for anything beyond local use put the app behind a reverse proxy that
+terminates TLS, and set `PUBLIC_BASE_URL` in `.env` to the public HTTPS URL
+(e.g. `https://mem0.your-domain.com`). For Phase 2 OAuth, also set `OAUTH_SIGNING_KEY`
+(see [Phases](#phases)). See
+[Putting it behind a reverse proxy (HTTPS)](#putting-it-behind-a-reverse-proxy-https) for
+copy-paste setups with **Nginx Proxy Manager** and **Caddy**.
 
 **Backups.** The nightly S3 backup app is part of the CapRover setup. With Docker Compose you can
 take Qdrant snapshots yourself against the bundled instance — see
@@ -258,6 +264,154 @@ also holds the on-disk data.
 git pull
 docker compose up -d --build
 ```
+
+## Putting it behind a reverse proxy (HTTPS)
+
+If you run the [Docker Compose](#deploying-with-docker-compose) stack on a homelab box or a VPS and
+want to reach it from the internet, put a reverse proxy in front of it. The proxy gets you three
+things the app deliberately does **not** do itself:
+
+- **TLS termination** — a real Let's Encrypt certificate, so the public URL is `https://`. MCP
+  clients (Claude Code/Desktop/web, ChatGPT) and OAuth (Phase 2) refuse plain HTTP.
+- **A stable public hostname** that you point `PUBLIC_BASE_URL` at.
+- **A single front door** you can add access logging, fail2ban, or IP allowlisting to.
+
+The app listens on plain HTTP port `8000` and expects the proxy to handle HTTPS. Whatever proxy you
+pick, three things matter for this app specifically:
+
+1. **Set `PUBLIC_BASE_URL` to the public HTTPS URL** in `.env` and restart the stack
+   (`docker compose up -d`). The OAuth metadata and the MCP `resource` URI are derived from it; a
+   mismatch breaks strict OAuth clients. Do **not** add a trailing slash.
+2. **Don't buffer responses and use a generous read timeout.** The MCP endpoint (`/mcp`) uses
+   Streamable HTTP and can hold a response open while the server streams. Proxies that buffer the
+   whole body or time out at ~30–60s will make MCP appear to hang. Disable response buffering and
+   allow long-lived reads (e.g. 1 hour).
+3. **Forward the original host and scheme** (`Host`, `X-Forwarded-Proto: https`) so generated URLs
+   stay on your public origin.
+
+> **Don't publish Qdrant.** Only proxy the app (port `8000`). The bundled Qdrant has no published
+> ports in `docker-compose.yml` — leave it that way. Nothing outside the Compose network should be
+> able to reach Qdrant directly.
+
+The two examples below assume DNS for `mem0.your-domain.com` points at the host running the proxy,
+and that the proxy can reach the app at `http://<app-host>:8000` (on the same Docker network, the
+service name `mem0-server:8000`; on the host, `127.0.0.1:8000`).
+
+### Nginx Proxy Manager
+
+[Nginx Proxy Manager](https://nginxproxymanager.com/) (NPM) is a popular web-UI wrapper around nginx
++ Let's Encrypt that many homelabbers already run.
+
+If you want NPM and mem0-server on the same Docker network, add the proxy to the Compose project (or
+attach both to a shared external network) so NPM can reach the app by service name. A minimal NPM
+service you can drop into `docker-compose.yml`:
+
+```yaml
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"     # HTTP (Let's Encrypt challenges + redirect)
+      - "443:443"   # HTTPS
+      - "81:81"     # NPM admin UI
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+```
+
+(and add `npm_data:` / `npm_letsencrypt:` under the top-level `volumes:` block.)
+
+Then in the NPM admin UI (`http://<host>:81`, default login `admin@example.com` / `changeme` —
+change it immediately):
+
+1. **Hosts → Proxy Hosts → Add Proxy Host.**
+2. **Details tab:**
+   - **Domain Names:** `mem0.your-domain.com`
+   - **Scheme:** `http`
+   - **Forward Hostname / IP:** `mem0-server` (the Compose service name) — or the host IP /
+     `127.0.0.1` if NPM runs elsewhere.
+   - **Forward Port:** `8000`
+   - Enable **Block Common Exploits**. Leave **Websockets Support** on (harmless).
+3. **SSL tab:**
+   - **SSL Certificate:** *Request a new SSL Certificate*.
+   - Enable **Force SSL** and **HTTP/2 Support**.
+   - Agree to the Let's Encrypt terms and save. NPM provisions the cert automatically (port 80 must
+     be reachable from the internet for the challenge).
+4. **Advanced tab** — paste this so MCP streaming isn't buffered or cut off early:
+
+   ```nginx
+   proxy_buffering off;
+   proxy_request_buffering off;
+   proxy_read_timeout 3600s;
+   proxy_send_timeout 3600s;
+   ```
+
+5. Save, then set `PUBLIC_BASE_URL=https://mem0.your-domain.com` in `.env` and
+   `docker compose up -d`.
+
+### Caddy
+
+[Caddy](https://caddyserver.com/) terminates TLS and renews Let's Encrypt certificates
+automatically with almost no configuration — often the simplest option on a VPS. A whole reverse
+proxy is two lines.
+
+If you run Caddy as a container alongside the app, add it to `docker-compose.yml`:
+
+```yaml
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+```
+
+(and add `caddy_data:` / `caddy_config:` under the top-level `volumes:` block.)
+
+Create a `Caddyfile` next to `docker-compose.yml`:
+
+```caddy
+mem0.your-domain.com {
+    reverse_proxy mem0-server:8000 {
+        # Stream MCP responses instead of buffering them, and allow long-lived reads.
+        flush_interval -1
+        transport http {
+            read_timeout 1h
+        }
+    }
+}
+```
+
+Use the app's host/IP and `:8000` instead of `mem0-server:8000` if Caddy runs outside the Compose
+network (e.g. directly on the host, `127.0.0.1:8000`). Caddy obtains and renews the certificate on
+first request — just make sure ports 80 and 443 are reachable from the internet and DNS points at
+the host.
+
+Then set `PUBLIC_BASE_URL=https://mem0.your-domain.com` in `.env` and `docker compose up -d`
+(plus `docker compose restart caddy` if you edited the `Caddyfile`).
+
+### Verifying the proxy
+
+From anywhere on the internet:
+
+```bash
+# 1. TLS + health round-trip to Qdrant through the proxy.
+curl https://mem0.your-domain.com/healthz
+# -> {"ok": true, ...}
+
+# 2. The MCP endpoint answers on the canonical (no-trailing-slash) path.
+#    A 401/406 here is fine — it means the route is reachable and auth is enforced.
+curl -i https://mem0.your-domain.com/mcp
+```
+
+If `/healthz` works but an MCP client hangs or times out, the proxy is almost always buffering the
+response or timing out too early — re-check the streaming/timeout settings above. If OAuth clients
+reject the connection, confirm `PUBLIC_BASE_URL` exactly matches the public origin with no trailing
+slash, and see [Troubleshooting](#troubleshooting).
 
 ## Deploying to CapRover
 
@@ -812,6 +966,7 @@ status, and latency. The `Authorization` header is never logged.
 | 401 on REST or MCP | Missing or wrong `Authorization: Bearer` token. Confirm it equals `MEM0_API_KEY`. |
 | `Task group is not initialized` on first MCP request | FastMCP lifespan not wired into FastAPI — a code/deploy regression. See `app/main.py`. |
 | 503 from `/healthz` | Qdrant is unreachable. Check `QDRANT_HOST`/`QDRANT_PORT`/`QDRANT_HTTPS`/`QDRANT_API_KEY`. |
+| MCP hangs or times out through a reverse proxy (but `/healthz` works) | The proxy is buffering or cutting off the streamed `/mcp` response. Disable response buffering and raise the read timeout — see [Putting it behind a reverse proxy (HTTPS)](#putting-it-behind-a-reverse-proxy-https). |
 | Server won't start | A required env var is missing or a provider key is absent. Check the startup logs; `app/config.py` names the missing variable. |
 | Claude.ai web / Cowork can't connect | OAuth not enabled (`OAUTH_SIGNING_KEY` blank), or the client's redirect URI isn't in `OAUTH_ALLOWED_REDIRECT_URIS`. |
 | "Couldn't reach the MCP server" on Claude.ai web / Cowork (but Claude Code/Desktop work) | OAuth discovery failure. Confirm `OAUTH_SIGNING_KEY` is set and `PUBLIC_BASE_URL` exactly matches the public HTTPS URL; the server must advertise the protected-resource metadata in the `/mcp/` 401 `WWW-Authenticate` header. |

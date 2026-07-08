@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     mem0_embed_dims: int = 1536
     openai_api_key: str | None = None
 
+    # Ollama (local, opt-in). Used when mem0_llm_provider and/or
+    # mem0_embed_provider is "ollama"; both talk to the same Ollama server, so a
+    # single base URL covers LLM and embedder. No API key: it's a local daemon.
+    ollama_base_url: str = "http://localhost:11434"
+
     # Auth
     mem0_api_key: str
     public_base_url: str

@@ -55,3 +55,11 @@ def test_non_default_provider_skips_key_check():
     )
     assert s.mem0_llm_provider == "ollama"
     assert s.mem0_embed_provider == "ollama"
+
+
+def test_ollama_base_url_default_and_override():
+    assert Settings().ollama_base_url == "http://localhost:11434"
+    assert (
+        Settings(ollama_base_url="http://ollama:11434").ollama_base_url
+        == "http://ollama:11434"
+    )

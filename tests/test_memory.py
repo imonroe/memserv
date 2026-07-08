@@ -38,12 +38,71 @@ def test_build_config_shape():
     assert cfg["version"] == "v1.1"
 
 
+def test_build_config_ollama_provider():
+    # Opt-in local Ollama for both LLM and embedder: no API keys, base URL wired
+    # under mem0's `ollama_base_url` key, and the embedder carries the vector dim.
+    cfg = _build_config(
+        Settings(
+            mem0_llm_provider="ollama",
+            mem0_llm_model="llama3.1:8b",
+            mem0_embed_provider="ollama",
+            mem0_embed_model="nomic-embed-text",
+            mem0_embed_dims=768,
+            ollama_base_url="http://ollama:11434",
+            anthropic_api_key=None,
+            openai_api_key=None,
+        )
+    )
+
+    llm = cfg["llm"]
+    assert llm["provider"] == "ollama"
+    assert llm["config"]["model"] == "llama3.1:8b"
+    assert llm["config"]["ollama_base_url"] == "http://ollama:11434"
+    assert "api_key" not in llm["config"]
+
+    emb = cfg["embedder"]
+    assert emb["provider"] == "ollama"
+    assert emb["config"]["model"] == "nomic-embed-text"
+    assert emb["config"]["ollama_base_url"] == "http://ollama:11434"
+    assert emb["config"]["embedding_dims"] == 768
+    assert "api_key" not in emb["config"]
+    # The Qdrant collection dimension must track the embed model's real output.
+    assert cfg["vector_store"]["config"]["embedding_model_dims"] == 768
+
+
+def test_build_config_mixed_ollama_llm_openai_embed():
+    # A mixed setup (local LLM, cloud embedder) keeps each provider's own keys.
+    cfg = _build_config(
+        Settings(mem0_llm_provider="ollama", mem0_llm_model="llama3.1:8b")
+    )
+    assert cfg["llm"]["config"]["ollama_base_url"] == "http://localhost:11434"
+    assert "api_key" not in cfg["llm"]["config"]
+    assert cfg["embedder"]["provider"] == "openai"
+    assert cfg["embedder"]["config"]["api_key"] == "test-openai"
+    assert "ollama_base_url" not in cfg["embedder"]["config"]
+
+
 def test_build_config_accepted_by_mem0_schema():
     # Non-mocked check: validate the config against the real (pinned) mem0
     # MemoryConfig so method/config drift is caught in CI rather than at runtime.
     from mem0.configs.base import MemoryConfig
 
     MemoryConfig(**_build_config(Settings()))
+    # Also validate the opt-in Ollama shape, so a mem0 rename of the Ollama
+    # config keys (e.g. ollama_base_url) is caught in CI, not at deploy time.
+    MemoryConfig(
+        **_build_config(
+            Settings(
+                mem0_llm_provider="ollama",
+                mem0_llm_model="llama3.1:8b",
+                mem0_embed_provider="ollama",
+                mem0_embed_model="nomic-embed-text",
+                mem0_embed_dims=768,
+                anthropic_api_key=None,
+                openai_api_key=None,
+            )
+        )
+    )
 
 
 # --- content fingerprint -----------------------------------------------------

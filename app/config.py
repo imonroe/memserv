@@ -69,8 +69,10 @@ class Settings(BaseSettings):
 
         # A provider's key is required whenever *either* role (LLM or embedder)
         # selects it — e.g. an OpenAI LLM needs OPENAI_API_KEY even if the
-        # embedder is Ollama. mem0 reads keys only from the config we build, not
-        # os.environ, so a missing key would fail silently at first request.
+        # embedder is Ollama. We inject keys into the mem0 config explicitly (see
+        # app/memory.py) because a key loaded from .env via pydantic-settings
+        # does not land in os.environ, where mem0's clients would otherwise read
+        # it; validating here fails fast at startup instead of at first request.
         providers = {
             self.mem0_llm_provider.strip().lower(),
             self.mem0_embed_provider.strip().lower(),

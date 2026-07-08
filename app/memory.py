@@ -40,6 +40,22 @@ def _provider_config(
     return config
 
 
+def _api_key_for(provider: str, s: Settings) -> str | None:
+    """The API key that belongs to `provider`, or None if it needs none.
+
+    Keys are provider-specific: an OpenAI LLM must get OPENAI_API_KEY, not the
+    Anthropic key, and vice versa — so the key is selected by provider, never by
+    role (LLM vs embedder). Ollama and any other keyless provider get None.
+    """
+    match provider.strip().lower():
+        case "anthropic":
+            return s.anthropic_api_key
+        case "openai":
+            return s.openai_api_key
+        case _:
+            return None
+
+
 def _build_config(s: Settings) -> dict:
     # mem0's Qdrant store has no `https` flag; it only honors scheme via `url`.
     # Build a scheme-aware URL so an HTTPS Qdrant on 443 isn't hit over plain HTTP.
@@ -60,7 +76,7 @@ def _build_config(s: Settings) -> dict:
             "config": _provider_config(
                 s.mem0_llm_provider,
                 s.mem0_llm_model,
-                api_key=s.anthropic_api_key,
+                api_key=_api_key_for(s.mem0_llm_provider, s),
                 base_url=s.ollama_base_url,
             ),
         },
@@ -69,7 +85,7 @@ def _build_config(s: Settings) -> dict:
             "config": _provider_config(
                 s.mem0_embed_provider,
                 s.mem0_embed_model,
-                api_key=s.openai_api_key,
+                api_key=_api_key_for(s.mem0_embed_provider, s),
                 base_url=s.ollama_base_url,
                 embedding_dims=s.mem0_embed_dims,
             ),

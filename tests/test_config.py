@@ -43,6 +43,29 @@ def test_provider_match_is_case_insensitive():
         Settings(mem0_llm_provider="Anthropic", anthropic_api_key=None)
 
 
+def test_missing_openai_key_rejected_for_llm_provider():
+    # OPENAI_API_KEY is required when OpenAI is the LLM provider too, even if the
+    # embedder is a keyless local provider — mem0 won't read it from os.environ.
+    with pytest.raises(ValidationError, match="OPENAI_API_KEY"):
+        Settings(
+            mem0_llm_provider="openai",
+            mem0_embed_provider="ollama",
+            openai_api_key=None,
+            anthropic_api_key=None,
+        )
+
+
+def test_missing_anthropic_key_rejected_for_embed_provider():
+    # Symmetric: Anthropic as the embedder requires ANTHROPIC_API_KEY.
+    with pytest.raises(ValidationError, match="ANTHROPIC_API_KEY"):
+        Settings(
+            mem0_llm_provider="ollama",
+            mem0_embed_provider="anthropic",
+            anthropic_api_key=None,
+            openai_api_key=None,
+        )
+
+
 def test_non_default_provider_skips_key_check():
     # Providers other than the key-backed ones should not require those keys.
     # Set both non-default and clear both keys so the test doesn't depend on

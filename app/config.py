@@ -67,17 +67,23 @@ class Settings(BaseSettings):
         def _missing(key: str | None) -> bool:
             return not (key and key.strip())
 
-        if self.mem0_llm_provider.strip().lower() == "anthropic" and _missing(
-            self.anthropic_api_key
-        ):
+        # A provider's key is required whenever *either* role (LLM or embedder)
+        # selects it — e.g. an OpenAI LLM needs OPENAI_API_KEY even if the
+        # embedder is Ollama. mem0 reads keys only from the config we build, not
+        # os.environ, so a missing key would fail silently at first request.
+        providers = {
+            self.mem0_llm_provider.strip().lower(),
+            self.mem0_embed_provider.strip().lower(),
+        }
+        if "anthropic" in providers and _missing(self.anthropic_api_key):
             raise ValueError(
-                "ANTHROPIC_API_KEY is required when MEM0_LLM_PROVIDER=anthropic"
+                "ANTHROPIC_API_KEY is required when MEM0_LLM_PROVIDER or "
+                "MEM0_EMBED_PROVIDER is anthropic"
             )
-        if self.mem0_embed_provider.strip().lower() == "openai" and _missing(
-            self.openai_api_key
-        ):
+        if "openai" in providers and _missing(self.openai_api_key):
             raise ValueError(
-                "OPENAI_API_KEY is required when MEM0_EMBED_PROVIDER=openai"
+                "OPENAI_API_KEY is required when MEM0_LLM_PROVIDER or "
+                "MEM0_EMBED_PROVIDER is openai"
             )
         return self
 

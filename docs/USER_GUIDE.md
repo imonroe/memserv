@@ -156,11 +156,11 @@ runs, or set these in the CapRover app's **App Configs** panel for production.
 | `MEM0_DEFAULT_USER_ID` | yes | — | The single user, e.g. `default-user`. |
 | `MEM0_LLM_PROVIDER` | no | `anthropic` | LLM provider for fact extraction. `anthropic`, `openai`, or `ollama` (local — see [Running fully local with Ollama](#running-fully-local-with-ollama)). |
 | `MEM0_LLM_MODEL` | no | `claude-haiku-4-5-20251001` | LLM model. For Ollama, e.g. `llama3.1:8b`. |
-| `ANTHROPIC_API_KEY` | if provider=anthropic | — | Required when the LLM provider is Anthropic. |
+| `ANTHROPIC_API_KEY` | if using Anthropic | — | Required when Anthropic is the LLM (or embed) provider. |
 | `MEM0_EMBED_PROVIDER` | no | `openai` | Embedding provider. `openai` or `ollama` (local). |
 | `MEM0_EMBED_MODEL` | no | `text-embedding-3-small` | Embedding model. For Ollama, e.g. `nomic-embed-text`. |
 | `MEM0_EMBED_DIMS` | no | `1536` | **Must** match the embedder's real dimension (Ollama: `nomic-embed-text`=768, `mxbai-embed-large`=1024). |
-| `OPENAI_API_KEY` | if provider=openai | — | Required when the embed provider is OpenAI. |
+| `OPENAI_API_KEY` | if using OpenAI | — | Required when OpenAI is the embed or LLM provider. |
 | `OLLAMA_BASE_URL` | no | `http://localhost:11434` | Ollama server URL; used when either provider is `ollama`. No API key needed. |
 | `MEM0_API_KEY` | yes | — | Static bearer token protecting REST + MCP. Generate with `openssl rand -hex 32`. |
 | `PUBLIC_BASE_URL` | yes | — | Public URL, e.g. `https://mem0.your-domain.com`. Used in OAuth metadata. |

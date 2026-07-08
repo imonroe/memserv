@@ -70,6 +70,16 @@ def test_build_config_ollama_provider():
     assert cfg["vector_store"]["config"]["embedding_model_dims"] == 768
 
 
+def test_build_config_openai_llm_uses_openai_key():
+    # An OpenAI LLM must receive OPENAI_API_KEY, never the Anthropic key — the
+    # key is chosen by provider, not by role (LLM vs embedder).
+    cfg = _build_config(
+        Settings(mem0_llm_provider="openai", mem0_llm_model="gpt-4o-mini")
+    )
+    assert cfg["llm"]["provider"] == "openai"
+    assert cfg["llm"]["config"]["api_key"] == "test-openai"
+
+
 def test_build_config_mixed_ollama_llm_openai_embed():
     # A mixed setup (local LLM, cloud embedder) keeps each provider's own keys.
     cfg = _build_config(

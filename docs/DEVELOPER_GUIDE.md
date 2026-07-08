@@ -259,9 +259,9 @@ PKCE S256 mandatory and clients public (no secrets). Update `tests/test_oauth.py
 ## Configuration internals
 
 `Settings` (pydantic-settings) reads from environment and `.env`, with `extra="ignore"`. The
-`_require_provider_keys` model validator enforces that `ANTHROPIC_API_KEY` is present when the LLM
-provider is Anthropic, and `OPENAI_API_KEY` when the embed provider is OpenAI — failing fast at
-startup rather than at first request. `get_settings()` is `@lru_cache`d, so settings are read once
+`_require_provider_keys` model validator enforces that a provider's key is present whenever *either*
+role selects it — `ANTHROPIC_API_KEY` if Anthropic is the LLM or embed provider, `OPENAI_API_KEY` if
+OpenAI is either — failing fast at startup rather than at first request. `get_settings()` is `@lru_cache`d, so settings are read once
 per process. `oauth_enabled` and `allowed_redirect_uris_list` are derived properties.
 
 `app/memory.py`'s `_provider_config()` builds each provider's mem0 `config` block keyed to the

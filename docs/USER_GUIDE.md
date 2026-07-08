@@ -29,6 +29,12 @@ connect clients to it, and use it day to day. If you want to work on the code it
   - [Claude (CLAUDE.md)](#claude-claudemd)
   - [ChatGPT (custom instructions)](#chatgpt-custom-instructions)
   - [Other agents (AGENTS.md and similar)](#other-agents-agentsmd-and-similar)
+- [Automating memory with Claude Code hooks](#automating-memory-with-claude-code-hooks)
+  - [Prerequisites](#hooks-prerequisites)
+  - [Recall: inject memories on every prompt](#recall-inject-memories-on-every-prompt)
+  - [Capture: save the conversation at session end](#capture-save-the-conversation-at-session-end)
+  - [Wiring the hooks up](#wiring-the-hooks-up)
+  - [Hooks vs. prompting](#hooks-vs-prompting)
 - [REST API reference](#rest-api-reference)
 - [Backups and restore](#backups-and-restore)
 - [Health and monitoring](#health-and-monitoring)
@@ -695,6 +701,227 @@ copy-paste prompt packs for specific recurring tasks — [auto-capturing a sessi
 summary](./prompts/auto-capture.md), [research synthesis](./prompts/research-synthesis.md), and
 [meeting synthesis](./prompts/meeting-synthesis.md). They're documentation only (no server changes)
 and drive the same six tools.
+
+## Automating memory with Claude Code hooks
+
+[Prompting agents to use memory](#prompting-agents-to-use-memory) makes the memory tools
+*available* and *asks* Claude to use them — but the model still has to remember to. [Claude
+Code hooks](https://code.claude.com/docs/en/hooks-guide) close that gap: they run shell
+commands at fixed points in the request/response lifecycle, so memory recall and capture
+happen **deterministically**, every time, without relying on the model to choose to call a
+tool.
+
+Two hooks give you the loop the model can't be trusted to run on its own:
+
+- **`UserPromptSubmit`** fires right after you submit a prompt, before Claude sees it. A hook
+  here searches memserv for memories relevant to what you just asked and injects them into
+  Claude's context — "recall first," enforced.
+- **`SessionEnd`** fires when the conversation ends. A hook here ships the transcript to
+  memserv's REST `add` endpoint, whose LLM extracts the durable facts — "save what mattered,"
+  enforced.
+
+Both hooks talk to memserv over the **REST API** with the bearer token, completely independent
+of the MCP connector. They work whether or not you've run `claude mcp add`; if you have, the
+hook-injected recall and the six MCP tools happily coexist (the hook front-loads context, the
+tools let Claude read/write on demand mid-task).
+
+<a id="hooks-prerequisites"></a>
+### Prerequisites
+
+- `curl` and [`jq`](https://jqlang.github.io/jq/) on your `PATH` (the scripts parse JSON with
+  `jq`).
+- Two environment variables exported in the shell that launches `claude`, so the hooks inherit
+  them:
+
+  ```bash
+  export MEM0_URL=https://mem0.your-domain.com     # base URL, no /api or /mcp suffix
+  export MEM0_API_KEY=...                            # the same bearer token the server uses
+  ```
+
+  Put these in your shell profile (`~/.bashrc`, `~/.zshrc`) so every session has them. The
+  token lives in your environment and, for capture, the conversation is sent to *your* memory
+  server — fine for a self-hosted single-user store, but keep the usual "don't put secrets in
+  memory" discipline (see the recall/capture notes below).
+
+Save both scripts under `.claude/hooks/` (per-project) or `~/.claude/hooks/` (global), and make
+them executable with `chmod +x`.
+
+<a id="recall-inject-memories-on-every-prompt"></a>
+### Recall: inject memories on every prompt
+
+`.claude/hooks/mem0-recall.sh` — reads the prompt off stdin, semantically searches memserv, and
+prints the top matches back as `additionalContext`. Anything a `UserPromptSubmit` hook writes to
+stdout (or returns via `additionalContext`) is added to Claude's context for that turn. It
+**never blocks the prompt**: on any error, or if memserv is unreachable, it exits quietly and
+Claude proceeds as normal.
+
+```bash
+#!/usr/bin/env bash
+# mem0-recall.sh — Claude Code UserPromptSubmit hook.
+# Search memserv for memories relevant to the prompt and inject them into
+# Claude's context before it answers. Never blocks the prompt.
+set -euo pipefail
+
+INPUT=$(cat)
+PROMPT=$(printf '%s' "$INPUT" | jq -r '.prompt // empty')
+
+# Nothing to search on, or config missing → stay silent.
+[ -z "$PROMPT" ] && exit 0
+if [ -z "${MEM0_URL:-}" ] || [ -z "${MEM0_API_KEY:-}" ]; then exit 0; fi
+
+# Semantic search; --max-time keeps us well under the 30s UserPromptSubmit budget.
+RESPONSE=$(curl -sS --max-time 10 \
+  -X POST "$MEM0_URL/api/v1/memories/search" \
+  -H "Authorization: Bearer $MEM0_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg q "$PROMPT" '{query: $q, limit: 5}')") || exit 0
+
+# Format the hits as a bullet list; emit nothing if there are none.
+CONTEXT=$(printf '%s' "$RESPONSE" | jq -r '
+  (.results // []) | map(select(.memory))
+  | if length == 0 then empty
+    else "Relevant long-term memories from mem0 (use if helpful, ignore if not):\n"
+         + (map("- " + .memory) | join("\n"))
+    end' 2>/dev/null) || exit 0
+
+[ -z "$CONTEXT" ] && exit 0
+
+jq -n --arg ctx "$CONTEXT" \
+  '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $ctx}}'
+```
+
+The injected block is advisory ("use if helpful, ignore if not") so a stray semantic match
+doesn't derail the answer. Tune `limit` (how many memories to pull) to taste. To bias toward
+recent facts over the closest topical match, add `recency_weight` to the search body (see
+[Search memories](#search-memories--post-apiv1memoriessearch)); to recall by an exact term
+instead of meaning, use `"mode": "keyword"`.
+
+<a id="capture-save-the-conversation-at-session-end"></a>
+### Capture: save the conversation at session end
+
+`.claude/hooks/mem0-capture.sh` — a `SessionEnd` hook that flattens the transcript into a
+`messages` array and POSTs it to memserv. **memserv's own LLM does the fact extraction**, so the
+hook stays dumb: it doesn't decide what's worth remembering, it just hands over the conversation
+and lets the server distill it. Re-sending overlapping content across sessions is cheap —
+memserv fingerprints content and skips exact re-adds before the LLM runs (see
+[How memory works](#how-memory-works)).
+
+```bash
+#!/usr/bin/env bash
+# mem0-capture.sh — Claude Code SessionEnd (or Stop) hook.
+# Send the conversation to memserv, whose LLM extracts the durable facts.
+set -euo pipefail
+
+INPUT=$(cat)
+TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty')
+
+if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then exit 0; fi
+if [ -z "${MEM0_URL:-}" ] || [ -z "${MEM0_API_KEY:-}" ]; then exit 0; fi
+
+# Flatten the transcript JSONL into a mem0 messages array: user/assistant turns
+# and their text only (content may be a string or an array of blocks), capped at
+# the last 40 turns to bound payload and cost.
+MESSAGES=$(jq -rs '
+  [ .[]
+    | select(.message.role == "user" or .message.role == "assistant")
+    | { role: .message.role,
+        content: ( .message.content
+                   | if type == "string" then .
+                     else ([ .[]? | .text // empty ] | join("\n"))
+                     end ) }
+    | select(.content != "")
+  ] | .[-40:]
+' "$TRANSCRIPT" 2>/dev/null) || exit 0
+
+# Empty conversation → nothing to save.
+[ "$(printf '%s' "$MESSAGES" | jq 'length')" -gt 0 ] || exit 0
+
+# agent_id is a write-only provenance tag; metadata.source follows the convention.
+curl -sS --max-time 30 \
+  -X POST "$MEM0_URL/api/v1/memories" \
+  -H "Authorization: Bearer $MEM0_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --argjson msgs "$MESSAGES" \
+        '{messages: $msgs, agent_id: "claude-code:hook", metadata: {source: "agent"}}')" \
+  >/dev/null 2>&1 || true
+
+exit 0
+```
+
+Notes and tradeoffs:
+
+- **`SessionEnd` fires on a graceful end** — `/clear`, `logout`, or exiting the prompt — but not
+  if the terminal is force-killed. If you want capture after *every* turn instead of once per
+  conversation, register the same script on the **`Stop`** event (fires each time Claude finishes
+  responding). That's more thorough but runs fact-extraction far more often.
+- **Cost.** Each capture that contains new content triggers one LLM fact-extraction call on
+  memserv. The dedup fingerprint makes re-runs over unchanged content free, but a fresh
+  conversation is genuinely new work. The 40-turn cap bounds the payload; lower it for tighter
+  cost control.
+- **`agent_id: "claude-code:hook"`** tags these writes for provenance. It's write-only — it does
+  **not** scope future searches (every client shares one store) — but it lets you later find or
+  bulk-delete hook-captured memories via the REST filters.
+- **Secrets.** The hook ships the whole (tailed) conversation to memserv, and memserv's LLM may
+  distill anything in it into a memory. Don't paste credentials into a session you're
+  auto-capturing.
+
+<a id="wiring-the-hooks-up"></a>
+### Wiring the hooks up
+
+Register both in a Claude Code [settings file](https://code.claude.com/docs/en/hooks-guide) —
+`.claude/settings.json` in the project root (shareable, commit it) or `~/.claude/settings.json`
+(applies everywhere). Use `$CLAUDE_PROJECT_DIR` for project-scoped scripts, or an absolute path
+like `~/.claude/hooks/...` for global ones:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/mem0-recall.sh" }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/mem0-capture.sh" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Verify with `/hooks` inside Claude Code (it lists registered hooks per event). If a hook doesn't
+fire, confirm the scripts are executable, that `MEM0_URL`/`MEM0_API_KEY` are exported in the
+launching shell, and that `jq`/`curl` are installed; then run `claude --debug-file /tmp/claude.log`
+and check the log for the hook's exit code, stdout, and stderr. You can sanity-check a script
+outside Claude Code by piping it a sample payload:
+
+```bash
+echo '{"prompt": "where do we deploy?"}' | .claude/hooks/mem0-recall.sh
+```
+
+<a id="hooks-vs-prompting"></a>
+### Hooks vs. prompting
+
+Hooks and the [prompt-based approach](#prompting-agents-to-use-memory) solve the same problem —
+"actually use memory" — from opposite ends, and combine well:
+
+| | Hooks (this section) | Prompting / MCP tools |
+|---|---|---|
+| **Runs** | Deterministically, every time | When the model decides to |
+| **Recall** | Injects top-K matches for *every* prompt | Model searches when it judges it useful |
+| **Capture** | Ships the raw conversation; memserv's LLM distills it | Model chooses *what* to save, as clean single-facts |
+| **Setup** | `curl`/`jq` scripts + `settings.json` | A paragraph in `CLAUDE.md` |
+
+A good middle ground: use the **recall hook** (deterministic front-loading beats hoping the model
+searches) alongside **prompt-based capture** via the
+[auto-capture prompt pack](./prompts/auto-capture.md) (the model writes cleaner, more selective
+single-fact memories than a raw transcript dump). Or run all four for belt-and-suspenders. They
+read and write the same shared store, so nothing conflicts.
 
 ## REST API reference
 

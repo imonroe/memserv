@@ -8,6 +8,7 @@ connect clients to it, and use it day to day. If you want to work on the code it
 - [How memory works](#how-memory-works)
 - [Prerequisites](#prerequisites)
 - [Configuration reference](#configuration-reference)
+  - [Running fully local with Ollama](#running-fully-local-with-ollama)
 - [Choosing a deployment method](#choosing-a-deployment-method)
 - [Deploying with Docker Compose](#deploying-with-docker-compose)
 - [Putting it behind a reverse proxy (HTTPS)](#putting-it-behind-a-reverse-proxy-https)
@@ -153,13 +154,14 @@ runs, or set these in the CapRover app's **App Configs** panel for production.
 | `QDRANT_API_KEY` | yes | — | Qdrant API key. |
 | `MEM0_COLLECTION` | no | `memories` | Qdrant collection name. |
 | `MEM0_DEFAULT_USER_ID` | yes | — | The single user, e.g. `default-user`. |
-| `MEM0_LLM_PROVIDER` | no | `anthropic` | LLM provider for fact extraction. |
-| `MEM0_LLM_MODEL` | no | `claude-haiku-4-5-20251001` | LLM model. |
-| `ANTHROPIC_API_KEY` | if provider=anthropic | — | Required when the LLM provider is Anthropic. |
-| `MEM0_EMBED_PROVIDER` | no | `openai` | Embedding provider. |
-| `MEM0_EMBED_MODEL` | no | `text-embedding-3-small` | Embedding model. |
-| `MEM0_EMBED_DIMS` | no | `1536` | **Must** match the embedder's real dimension. |
-| `OPENAI_API_KEY` | if provider=openai | — | Required when the embed provider is OpenAI. |
+| `MEM0_LLM_PROVIDER` | no | `anthropic` | LLM provider for fact extraction. `anthropic`, `openai`, or `ollama` (local — see [Running fully local with Ollama](#running-fully-local-with-ollama)). |
+| `MEM0_LLM_MODEL` | no | `claude-haiku-4-5-20251001` | LLM model. For Ollama, e.g. `llama3.1:8b`. |
+| `ANTHROPIC_API_KEY` | if using Anthropic | — | Required when Anthropic is the LLM (or embed) provider. |
+| `MEM0_EMBED_PROVIDER` | no | `openai` | Embedding provider. `openai` or `ollama` (local). |
+| `MEM0_EMBED_MODEL` | no | `text-embedding-3-small` | Embedding model. For Ollama, e.g. `nomic-embed-text`. |
+| `MEM0_EMBED_DIMS` | no | `1536` | **Must** match the embedder's real dimension (Ollama: `nomic-embed-text`=768, `mxbai-embed-large`=1024). |
+| `OPENAI_API_KEY` | if using OpenAI | — | Required when OpenAI is the embed or LLM provider. |
+| `OLLAMA_BASE_URL` | no | `http://localhost:11434` | Ollama server URL; used when either provider is `ollama`. No API key needed. |
 | `MEM0_API_KEY` | yes | — | Static bearer token protecting REST + MCP. Generate with `openssl rand -hex 32`. |
 | `PUBLIC_BASE_URL` | yes | — | Public URL, e.g. `https://mem0.your-domain.com`. Used in OAuth metadata. |
 | `OAUTH_SIGNING_KEY` | no | empty | PEM RSA private key. **Setting this enables Phase 2 OAuth.** Leave blank for Phase 1. |
@@ -200,6 +202,59 @@ openssl genrsa 2048
 
 When pasting a multi-line PEM into a single env var, replace newlines with `\n` — the app converts
 `\n` back to real newlines at load time.
+
+### Running fully local with Ollama
+
+By default memserv extracts facts with Anthropic and embeds with OpenAI — both are cloud APIs that
+cost money per call and see your memory content. You can instead point the **LLM**, the
+**embedder**, or **both** at a local [Ollama](https://ollama.com/) server for **zero per-call cost**
+and **no content leaving the host** — a natural fit for a self-hosted single-user store. It's
+**opt-in**; the default stays `anthropic` + `openai`.
+
+Set the provider(s) to `ollama` and give the models and server URL:
+
+```bash
+# Fully local — nothing leaves the host, no API keys needed.
+OLLAMA_BASE_URL=http://localhost:11434
+MEM0_LLM_PROVIDER=ollama
+MEM0_LLM_MODEL=llama3.1:8b
+MEM0_EMBED_PROVIDER=ollama
+MEM0_EMBED_MODEL=nomic-embed-text
+MEM0_EMBED_DIMS=768              # nomic-embed-text is 768-dim — see the warning below
+```
+
+Pull the models on the Ollama host first (`ollama pull llama3.1:8b`,
+`ollama pull nomic-embed-text`). When a provider is `ollama` its API key (`ANTHROPIC_API_KEY` /
+`OPENAI_API_KEY`) is **not required** — memserv only enforces a provider's key when that provider is
+actually selected. You can also mix and match: a local Ollama LLM with cloud OpenAI embeddings (keep
+`OPENAI_API_KEY`), or cloud Anthropic extraction with local embeddings, whatever balances cost,
+privacy, and quality for you.
+
+> **Critical — `MEM0_EMBED_DIMS` must match the Ollama embed model's real output dimension.**
+> `nomic-embed-text` is **768**, `mxbai-embed-large` is **1024** (the OpenAI defaults are 1536/3072).
+> A mismatch causes **silent** empty search results, not an error. The dimension is baked into the
+> Qdrant collection at creation, so **switching embed models (or moving between OpenAI and Ollama)
+> means dropping and recreating the collection** — you can't change it in place. Start on Ollama from
+> an empty store, or re-import after recreating the collection. This is the same
+> [invariant](#prerequisites) that applies to any embed-model change.
+
+**Performance note.** Local models run on your hardware. Fact extraction (`add`) makes an LLM call,
+so on a CPU-only box a busy automation pipeline may feel slow; a GPU helps a lot. Embedding models
+are lighter. If cost/privacy matter more than latency, local is a good trade; if you need snappy
+high-volume writes and don't mind the bill, the cloud defaults are faster.
+
+**Bundled Ollama with Docker Compose.** The `docker-compose.yml` ships a commented-out `ollama`
+service. Uncomment it (and the `ollama_data` volume), set `OLLAMA_BASE_URL=http://ollama:11434` (the
+Compose **service name**, not `localhost`) and the provider vars in `.env`, then `docker compose up
+-d` and pull the models into the container:
+
+```bash
+docker compose exec ollama ollama pull llama3.1:8b
+docker compose exec ollama ollama pull nomic-embed-text
+```
+
+See [Deploying with Docker Compose](#deploying-with-docker-compose). On CapRover, run Ollama as its
+own app (or on a reachable host) and set `OLLAMA_BASE_URL` to its URL.
 
 ## Choosing a deployment method
 

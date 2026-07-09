@@ -41,6 +41,29 @@ services:
       # Persists the Phase 2 OAuth SQLite DB across restarts.
       - mem0_data:/app/data
 
+  # Optional: a local Ollama server for cost-free, private LLM + embeddings.
+  # Uncomment this service AND the `ollama_data` volume below, then in .env set
+  # OLLAMA_BASE_URL=http://ollama:11434 (the service name, not localhost) plus
+  # the provider vars (see .env.example → "Local Ollama"). After `up -d`, pull
+  # the models once, e.g.:
+  #   docker compose exec ollama ollama pull llama3.1:8b
+  #   docker compose exec ollama ollama pull nomic-embed-text
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   # For NVIDIA GPU acceleration, install the NVIDIA Container Toolkit and
+  #   # uncomment; otherwise Ollama runs on CPU.
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: all
+  #   #           capabilities: [gpu]
+
 volumes:
   qdrant_data:
   mem0_data:
+  # ollama_data:

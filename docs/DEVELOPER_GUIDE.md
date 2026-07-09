@@ -259,14 +259,19 @@ PKCE S256 mandatory and clients public (no secrets). Update `tests/test_oauth.py
 ## Configuration internals
 
 `Settings` (pydantic-settings) reads from environment and `.env`, with `extra="ignore"`. The
-`_require_provider_keys` model validator enforces that `ANTHROPIC_API_KEY` is present when the LLM
-provider is Anthropic, and `OPENAI_API_KEY` when the embed provider is OpenAI — failing fast at
-startup rather than at first request. `get_settings()` is `@lru_cache`d, so settings are read once
+`_require_provider_keys` model validator enforces that a provider's key is present whenever *either*
+role selects it — `ANTHROPIC_API_KEY` if Anthropic is the LLM or embed provider, `OPENAI_API_KEY` if
+OpenAI is either — failing fast at startup rather than at first request. `get_settings()` is `@lru_cache`d, so settings are read once
 per process. `oauth_enabled` and `allowed_redirect_uris_list` are derived properties.
 
-`app/memory.py`'s `_provider_config()` injects the API key into the mem0 provider config explicitly,
-because mem0's provider clients otherwise read keys from `os.environ`, which is not populated when
-keys come only from a `.env` file via pydantic-settings.
+`app/memory.py`'s `_provider_config()` builds each provider's mem0 `config` block keyed to the
+provider. For cloud providers it injects the API key explicitly, because mem0's provider clients
+otherwise read keys from `os.environ`, which is not populated when keys come only from a `.env` file
+via pydantic-settings. For a local `ollama` provider there is no key; it instead emits mem0's
+`ollama_base_url` (from `OLLAMA_BASE_URL`) and, for the embedder, `embedding_dims`. Because the
+`_require_provider_keys` validator only enforces a provider's key when that provider is selected,
+`ollama` (and any future keyless provider) needs no key — so a fully-local or mixed cloud/local
+setup validates cleanly.
 
 ## Observability internals
 

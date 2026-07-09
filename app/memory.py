@@ -13,13 +13,47 @@ from app.ranking import _parse_timestamp
 _log = structlog.get_logger()
 
 
-def _provider_config(model: str, api_key: str | None) -> dict:
-    config = {"model": model}
-    # mem0's provider clients otherwise read the key from os.environ, which is
-    # not populated when keys come only from a .env file via pydantic-settings.
-    if api_key:
+def _provider_config(
+    provider: str,
+    model: str,
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    embedding_dims: int | None = None,
+) -> dict:
+    """Build a mem0 provider `config` block, keyed to the provider.
+
+    Cloud providers (anthropic/openai/…) get the API key injected explicitly:
+    mem0's clients otherwise read it from os.environ, which is not populated when
+    keys come only from a .env file via pydantic-settings. A local Ollama server
+    takes no key — it needs its base URL under mem0's `ollama_base_url` key
+    instead, plus the vector dimension for the embedder.
+    """
+    config: dict = {"model": model}
+    if provider.strip().lower() == "ollama":
+        if base_url:
+            config["ollama_base_url"] = base_url
+        if embedding_dims is not None:
+            config["embedding_dims"] = embedding_dims
+    elif api_key:
         config["api_key"] = api_key
     return config
+
+
+def _api_key_for(provider: str, s: Settings) -> str | None:
+    """The API key that belongs to `provider`, or None if it needs none.
+
+    Keys are provider-specific: an OpenAI LLM must get OPENAI_API_KEY, not the
+    Anthropic key, and vice versa — so the key is selected by provider, never by
+    role (LLM vs embedder). Ollama and any other keyless provider get None.
+    """
+    match provider.strip().lower():
+        case "anthropic":
+            return s.anthropic_api_key
+        case "openai":
+            return s.openai_api_key
+        case _:
+            return None
 
 
 def _build_config(s: Settings) -> dict:
@@ -39,11 +73,22 @@ def _build_config(s: Settings) -> dict:
         },
         "llm": {
             "provider": s.mem0_llm_provider,
-            "config": _provider_config(s.mem0_llm_model, s.anthropic_api_key),
+            "config": _provider_config(
+                s.mem0_llm_provider,
+                s.mem0_llm_model,
+                api_key=_api_key_for(s.mem0_llm_provider, s),
+                base_url=s.ollama_base_url,
+            ),
         },
         "embedder": {
             "provider": s.mem0_embed_provider,
-            "config": _provider_config(s.mem0_embed_model, s.openai_api_key),
+            "config": _provider_config(
+                s.mem0_embed_provider,
+                s.mem0_embed_model,
+                api_key=_api_key_for(s.mem0_embed_provider, s),
+                base_url=s.ollama_base_url,
+                embedding_dims=s.mem0_embed_dims,
+            ),
         },
         "version": "v1.1",
     }

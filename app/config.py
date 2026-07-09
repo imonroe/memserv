@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     mem0_embed_dims: int = 1536
     openai_api_key: str | None = None
 
+    # Ollama (local, opt-in). Used when mem0_llm_provider and/or
+    # mem0_embed_provider is "ollama"; both talk to the same Ollama server, so a
+    # single base URL covers LLM and embedder. No API key: it's a local daemon.
+    ollama_base_url: str = "http://localhost:11434"
+
     # Auth
     mem0_api_key: str
     public_base_url: str
@@ -62,17 +67,25 @@ class Settings(BaseSettings):
         def _missing(key: str | None) -> bool:
             return not (key and key.strip())
 
-        if self.mem0_llm_provider.strip().lower() == "anthropic" and _missing(
-            self.anthropic_api_key
-        ):
+        # A provider's key is required whenever *either* role (LLM or embedder)
+        # selects it — e.g. an OpenAI LLM needs OPENAI_API_KEY even if the
+        # embedder is Ollama. We inject keys into the mem0 config explicitly (see
+        # app/memory.py) because a key loaded from .env via pydantic-settings
+        # does not land in os.environ, where mem0's clients would otherwise read
+        # it; validating here fails fast at startup instead of at first request.
+        providers = {
+            self.mem0_llm_provider.strip().lower(),
+            self.mem0_embed_provider.strip().lower(),
+        }
+        if "anthropic" in providers and _missing(self.anthropic_api_key):
             raise ValueError(
-                "ANTHROPIC_API_KEY is required when MEM0_LLM_PROVIDER=anthropic"
+                "ANTHROPIC_API_KEY is required when MEM0_LLM_PROVIDER or "
+                "MEM0_EMBED_PROVIDER is anthropic"
             )
-        if self.mem0_embed_provider.strip().lower() == "openai" and _missing(
-            self.openai_api_key
-        ):
+        if "openai" in providers and _missing(self.openai_api_key):
             raise ValueError(
-                "OPENAI_API_KEY is required when MEM0_EMBED_PROVIDER=openai"
+                "OPENAI_API_KEY is required when MEM0_LLM_PROVIDER or "
+                "MEM0_EMBED_PROVIDER is openai"
             )
         return self
 

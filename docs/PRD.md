@@ -348,7 +348,7 @@ class SearchRequest(BaseModel):
     query: str
     user_id: Optional[str] = None
     agent_id: Optional[str] = None
-    limit: int = Field(default=10, ge=1, le=100)
+    limit: int = Field(default=15, ge=1, le=100)
 ```
 
 ### 7.3 `/healthz` behavior
@@ -398,7 +398,7 @@ def build_mcp() -> FastMCP:
     def search_memories(
         query: str,
         agent_id: str | None = None,
-        limit: int = 10,
+        limit: int = 15,
     ) -> dict:
         """Search long-term memory by semantic similarity."""
         kwargs = {"user_id": default_user, "limit": limit}

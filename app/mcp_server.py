@@ -35,11 +35,19 @@ def build_mcp() -> FastMCP:
 
     @mcp.tool
     def search_memories(
-        query: str, limit: int = 10, recency_weight: float = 0.0, mode: str = "semantic"
+        query: str, limit: int = 15, recency_weight: float = 0.0, mode: str = "semantic"
     ) -> dict:
         """Search long-term memory.
 
         Searches the single shared memory store for the user, across all agents.
+
+        limit (1-100, default 15) is how many memories to return — size it to the
+        breadth of the query. Use a small limit (~5) for a narrow lookup about one
+        specific thing, and a larger one (~20-25) for a broad or exploratory
+        question — a person's overall preferences, everything relevant to a
+        project — where wider context helps. Stored memories are short atomic
+        facts, so a larger limit adds little cost; prefer erring high on broad
+        queries over missing relevant context.
 
         mode: "semantic" (default) ranks by meaning/similarity. Use "keyword" for
         a case-insensitive substring match when you need an exact term the
@@ -49,6 +57,8 @@ def build_mcp() -> FastMCP:
         toward more recently created or updated memories. Leave it at 0 for pure
         relevance; raise it (e.g. 0.3) when the user asks what is *latest*.
         """
+        if not 1 <= limit <= 100:
+            raise ValueError(f"limit must be between 1 and 100, got {limit}")
         if mode not in ("semantic", "keyword"):
             raise ValueError(f"mode must be 'semantic' or 'keyword', got {mode!r}")
         if mode == "keyword":

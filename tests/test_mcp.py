@@ -99,7 +99,17 @@ async def test_search_with_recency_weight_invokes_mem(mcp, mem):
         await client.call_tool("search_memories", {"query": "x", "recency_weight": 0.5})
     _, kwargs = mem.search.call_args
     assert kwargs["filters"] == {"user_id": "default-user"}
-    assert kwargs["top_k"] == 10
+    assert kwargs["top_k"] == 15
+
+
+async def test_search_default_limit_is_15(mcp, mem):
+    # Default sized for broad queries; the model narrows it explicitly when
+    # doing a specific lookup (see the tool docstring).
+    mem.search.return_value = {"results": []}
+    async with Client(mcp) as client:
+        await client.call_tool("search_memories", {"query": "x"})
+    _, kwargs = mem.search.call_args
+    assert kwargs["top_k"] == 15
 
 
 async def test_list_memories_tool(mcp, mem):
@@ -131,6 +141,16 @@ async def test_list_memories_tool_rejects_bad_paging(mcp, mem):
             with pytest.raises(ToolError):
                 await client.call_tool("list_memories", args)
     mem.get_all.assert_not_called()
+
+
+async def test_search_memories_tool_rejects_bad_limit(mcp, mem):
+    # The MCP tool enforces the same 1-100 range the REST API validates via
+    # pydantic, so an out-of-range limit never reaches the backend.
+    async with Client(mcp) as client:
+        for args in ({"query": "x", "limit": 0}, {"query": "x", "limit": 101}):
+            with pytest.raises(ToolError):
+                await client.call_tool("search_memories", args)
+    mem.search.assert_not_called()
 
 
 async def test_delete_memory_tool(mcp, mem):

@@ -75,6 +75,15 @@ def test_search(app_instance, mem, auth_header):
     assert kwargs["filters"]["user_id"] == "default-user"
 
 
+def test_search_default_limit_is_15(app_instance, mem, auth_header):
+    mem.search.return_value = {"results": []}
+    c = _client(app_instance)
+    resp = c.post("/api/v1/memories/search", json={"query": "where"}, headers=auth_header)
+    assert resp.status_code == 200
+    _, kwargs = mem.search.call_args
+    assert kwargs["top_k"] == 15
+
+
 def test_list(app_instance, mem, auth_header):
     mem.get_all.return_value = {"results": []}
     c = _client(app_instance)

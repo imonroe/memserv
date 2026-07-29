@@ -703,6 +703,9 @@ You have a persistent memory store available through the mem0 MCP server. Use it
 
 - **At the start of a task**, call `search_memories` with a query about the topic to recall any
   relevant preferences, decisions, or context before you respond.
+- **Size the search to the question.** For a narrow lookup about one specific thing, a small
+  `limit` (~5) is enough; for a broad or exploratory question — someone's overall preferences,
+  everything about a project — raise `limit` (~20-25) so you get enough context to work from.
 - **When the user shares** a durable preference, decision, project convention, or fact they'll
   likely want recalled later, call `add_memory` to save it. Keep each memory a single clear fact.
 - **When something changes**, find the existing memory (`search_memories` / `list_memories`) and
@@ -739,6 +742,8 @@ at session start. Drop in a tool-agnostic version:
 A shared long-term memory store is available via the mem0 MCP server. Behavior:
 
 1. Recall: at the start of a task, search memory for context relevant to the request before acting.
+   Size the search to the question — a small limit (~5) for a specific lookup, a larger one
+   (~20-25) for a broad or exploratory one.
 2. Persist: save durable facts, preferences, decisions, and conventions as they arise.
 3. Reconcile: update an existing memory when it changes; avoid near-duplicates.
 4. Safety: never store secrets, credentials, or sensitive personal data.
@@ -1027,7 +1032,14 @@ curl -X POST https://mem0.your-domain.com/api/v1/memories \
 
 ### Search memories — `POST /api/v1/memories/search`
 
-Semantic search. Optional `agent_id`, `run_id`, `user_id`, and `limit` (1–100, default 10).
+Semantic search. Optional `agent_id`, `run_id`, `user_id`, and `limit` (1–100, default 15).
+
+Size `limit` to the breadth of the query: a small value (~5) for a narrow lookup about one
+specific thing, a larger one (~20–25) for a broad or exploratory question where wider context
+helps. Stored memories are short atomic facts, so a larger limit costs little — under-fetching a
+broad query loses relevant context, while over-fetching a narrow one only appends weaker matches.
+The MCP `search_memories` tool takes the same `limit` and is documented to size it this way
+automatically.
 
 ```bash
 curl -X POST https://mem0.your-domain.com/api/v1/memories/search \

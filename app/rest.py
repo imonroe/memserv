@@ -36,7 +36,11 @@ class SearchRequest(BaseModel):
     user_id: str | None = None
     agent_id: str | None = None
     run_id: str | None = None
-    limit: int = Field(default=10, ge=1, le=100)
+    # Default 15 (not the list default of 50): sized so broad/exploratory
+    # queries get enough context without the caller having to tune it, while a
+    # narrow lookup can pass a small limit. Atomic-fact memories make a larger
+    # limit cheap; under-fetching a broad query costs more than over-fetching.
+    limit: int = Field(default=15, ge=1, le=100)
     # "semantic" (default, vector similarity) or "keyword" (case-insensitive
     # substring match for exact terms semantic search misses).
     mode: Literal["semantic", "keyword"] = "semantic"

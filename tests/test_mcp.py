@@ -99,7 +99,17 @@ async def test_search_with_recency_weight_invokes_mem(mcp, mem):
         await client.call_tool("search_memories", {"query": "x", "recency_weight": 0.5})
     _, kwargs = mem.search.call_args
     assert kwargs["filters"] == {"user_id": "default-user"}
-    assert kwargs["top_k"] == 10
+    assert kwargs["top_k"] == 15
+
+
+async def test_search_default_limit_is_15(mcp, mem):
+    # Default sized for broad queries; the model narrows it explicitly when
+    # doing a specific lookup (see the tool docstring).
+    mem.search.return_value = {"results": []}
+    async with Client(mcp) as client:
+        await client.call_tool("search_memories", {"query": "x"})
+    _, kwargs = mem.search.call_args
+    assert kwargs["top_k"] == 15
 
 
 async def test_list_memories_tool(mcp, mem):

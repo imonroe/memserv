@@ -1038,8 +1038,8 @@ Size `limit` to the breadth of the query: a small value (~5) for a narrow lookup
 specific thing, a larger one (~20–25) for a broad or exploratory question where wider context
 helps. Stored memories are short atomic facts, so a larger limit costs little — under-fetching a
 broad query loses relevant context, while over-fetching a narrow one only appends weaker matches.
-The MCP `search_memories` tool takes the same `limit` and is documented to size it this way
-automatically.
+The MCP `search_memories` tool takes the same `limit`; its tool description guides connected agents
+to size it this way (the server does not resize it for you).
 
 ```bash
 curl -X POST https://mem0.your-domain.com/api/v1/memories/search \

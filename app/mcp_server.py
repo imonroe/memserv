@@ -57,6 +57,8 @@ def build_mcp() -> FastMCP:
         toward more recently created or updated memories. Leave it at 0 for pure
         relevance; raise it (e.g. 0.3) when the user asks what is *latest*.
         """
+        if not 1 <= limit <= 100:
+            raise ValueError(f"limit must be between 1 and 100, got {limit}")
         if mode not in ("semantic", "keyword"):
             raise ValueError(f"mode must be 'semantic' or 'keyword', got {mode!r}")
         if mode == "keyword":

@@ -143,6 +143,16 @@ async def test_list_memories_tool_rejects_bad_paging(mcp, mem):
     mem.get_all.assert_not_called()
 
 
+async def test_search_memories_tool_rejects_bad_limit(mcp, mem):
+    # The MCP tool enforces the same 1-100 range the REST API validates via
+    # pydantic, so an out-of-range limit never reaches the backend.
+    async with Client(mcp) as client:
+        for args in ({"query": "x", "limit": 0}, {"query": "x", "limit": 101}):
+            with pytest.raises(ToolError):
+                await client.call_tool("search_memories", args)
+    mem.search.assert_not_called()
+
+
 async def test_delete_memory_tool(mcp, mem):
     async with Client(mcp) as client:
         await client.call_tool("delete_memory", {"memory_id": "xyz"})
